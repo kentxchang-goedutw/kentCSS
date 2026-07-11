@@ -1,0 +1,3316 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>剛好系列-校園排課系統</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- html2pdf.js CDN for direct PDF generation and download -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  
+  <!-- docx.js CDN for generating true binary DOCX documents natively in the browser -->
+  <script src="https://unpkg.com/docx@8.5.0/build/index.umd.js"></script>
+  
+  <!-- React & ReactDOM CDN -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  
+  <!-- Babel Standalone for in-browser JSX compilation -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    /* 摺疊過渡與流暢滾動條 */
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+    /* 彈出對話框動畫 */
+    @keyframes scaleUp {
+      from { transform: scale(0.95); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+    .animate-scale-up {
+      animation: scaleUp 0.18s ease-out forwards;
+    }
+
+    /* 列印與 PDF 匯出排版設定 */
+    @media print {
+      body {
+        background-color: white !important;
+        color: black !important;
+      }
+      /* 隱藏主應用程式介面與左下角浮動按鈕 */
+      #root, .fixed {
+        display: none !important;
+      }
+      /* 呈現專屬列印區 */
+      #print-section {
+        display: block !important;
+      }
+      .page-break {
+        page-break-after: always;
+        break-after: page;
+      }
+    }
+  </style>
+</head>
+<body class="bg-slate-50 min-h-screen">
+
+  <div id="root"></div>
+
+  <!-- 專為列印與另存 PDF 設計的隱藏容器 -->
+  <div id="print-section" class="hidden"></div>
+
+  <!-- React 應用程式本體 -->
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useMemo } = React;
+
+    // 自訂安全 SVG 圖示 (避免外部 CSP 阻擋 icon)
+    const Icon = ({ name, className = "w-5 h-5" }) => {
+      const icons = {
+        Settings: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />,
+        Clock: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />,
+        BookOpen: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />,
+        Users: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />,
+        CalendarDays: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 3V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />,
+        Copy: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />,
+        Check: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />,
+        Play: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />,
+        Upload: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />,
+        Plus: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />,
+        Trash2: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />,
+        Info: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />,
+        Save: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />,
+        FolderOpen: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9l-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />,
+        AlertCircle: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />,
+        GripVertical: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5h.01M12 12h.01M12 19h.01M12 5h.01M12 12h.01M12 19h.01M8 5h.01M8 12h.01M8 19h.01M16 5h.01M16 12h.01M16 19h.01" />,
+        UserPlus: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />,
+        BookCopy: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />,
+        Sparkles: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />,
+        Download: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />,
+        Printer: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-4a2 2 0 00-2-2H9v4a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />,
+        Edit: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+      };
+      return (
+        <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          {icons[name] || <path d="M12 9v2m0 4h.01" />}
+        </svg>
+      );
+    };
+
+    const generateSequence = (count, style) => {
+      const result = [];
+      if (style === '甲乙丙') {
+        const stems = ['甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸', '子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥'];
+        for (let i = 0; i < count; i++) result.push(stems[i % stems.length]);
+      } else if (style === '123') {
+        for (let i = 1; i <= count; i++) result.push(i.toString());
+      } else if (style === 'ABC') {
+        for (let i = 0; i < count; i++) result.push(String.fromCharCode(65 + (i % 26)));
+      }
+      return result;
+    };
+
+    function App() {
+      // ================= 1. 核心狀態宣告 (useState) =================
+      const [activeTab, setActiveTab] = useState(1);
+      const fileInputRef = useRef(null);
+      const [toast, setToast] = useState(null); 
+      
+      const [copiedCoursePrompt, setCopiedCoursePrompt] = useState(false);
+      const [copiedTeacherPrompt, setCopiedTeacherPrompt] = useState(false);
+      const [copiedAssignPrompt, setCopiedAssignPrompt] = useState(false);
+      
+      // 階段一：年級與班級
+      const [grades, setGrades] = useState([]);
+      const [newGradeInput, setNewGradeInput] = useState('');
+      const [newClassInputs, setNewClassInputs] = useState({});
+      const [batchClassConfig, setBatchClassConfig] = useState({});
+
+      // 階段二：時間框架
+      const [timeConfig, setTimeConfig] = useState({ days: 5, periodsPerDay: 7 });
+
+      // 階段三：課程與教師計畫
+      const [step3Tab, setStep3Tab] = useState('courses'); 
+      
+      // 3.1 課程計畫
+      const [coursePlans, setCoursePlans] = useState({}); 
+      const [newCourseInputs, setNewCourseInputs] = useState({});
+      const [csvCourseInput, setCsvCourseInput] = useState('');
+
+      // 3.2 教師名單 & 導師職務 & 不可排課設定
+      const [teachers, setTeachers] = useState([]);
+      const [homerooms, setHomerooms] = useState({}); 
+      const [teacherBusyTimes, setTeacherBusyTimes] = useState({}); 
+      const [busyTimesTarget, setBusyTimesTarget] = useState(null); 
+      const [newTeacherInput, setNewTeacherInput] = useState('');
+      const [csvTeacherInput, setCsvTeacherInput] = useState('');
+
+      // 3.3 手動拖曳配課 & 拆分功能狀態
+      const [assignments, setAssignments] = useState([]);
+      const [csvInput, setCsvInput] = useState('');
+      const [customSplits, setCustomSplits] = useState({}); 
+      const [splitTarget, setSplitTarget] = useState(null); 
+      const [splitInputs, setSplitInputs] = useState([]); 
+
+      // 拖曳配課教師篩選器狀態 (單一教師選擇)
+      const [selectedTeacherFilter, setSelectedTeacherFilter] = useState('');
+      
+      // 待分配課程複選框勾選 UIDs
+      const [selectedCourseUids, setSelectedCourseUids] = useState([]);
+      const [batchTargetTeacher, setBatchTargetTeacher] = useState('');
+
+      // 拖曳暫存狀態
+      const [dragOverTeacher, setDragOverTeacher] = useState(null);
+      
+      // 階段四：排課引擎 & 結果呈現
+      const [schedule, setSchedule] = useState(null);
+      const [isScheduling, setIsScheduling] = useState(false);
+      const [scheduleStats, setScheduleStats] = useState({ total: 0, placed: 0, conflicts: 0 });
+      const [timetableOption, setTimetableOption] = useState('class'); 
+      const [editingCell, setEditingCell] = useState(null); 
+      const [previewTimetable, setPreviewTimetable] = useState(null);
+      const [gradeOffTimesTarget, setGradeOffTimesTarget] = useState(null);
+      const [manualPlacementTarget, setManualPlacementTarget] = useState(null);
+      const [selectedPlacementSlot, setSelectedPlacementSlot] = useState(null);
+
+      // ================= 2. 記憶化計算宣告 (useMemo) =================
+      // 將 memory 屬性移到頂部，徹底消除 TDZ (Temporal Dead Zone) 造成 pendingCourses / filteredTeachersForDrag 未宣告錯誤
+      
+      // 計算手動拖曳與批次指派用待分配課程清單 (支援動態拆分與導師稱謂)
+      const pendingCourses = useMemo(() => {
+        let pending = [];
+        grades.forEach(g => {
+          const plans = coursePlans[g.name] || [];
+          g.classes.forEach(c => {
+            plans.forEach(p => {
+              if (p.hours <= 0) return;
+              
+              const splitKey = `${g.name}-${c}-${p.subject}`;
+              const splits = customSplits[splitKey];
+              
+              if (splits && splits.length > 0) {
+                splits.forEach(sub => {
+                  const isAssigned = assignments.some(a => a.grade === g.name && a.className === c && a.subject === sub.subject);
+                  if (!isAssigned) {
+                    pending.push({
+                      uid: `${g.name}-${c}-${p.subject}-${sub.subject}`,
+                      grade: g.name,
+                      className: c,
+                      subject: sub.subject,
+                      hours: sub.hours,
+                      isSubCourse: true,
+                      originalSubject: p.subject
+                    });
+                  }
+                });
+              } else {
+                const isAssigned = assignments.some(a => a.grade === g.name && a.className === c && a.subject === p.subject);
+                if (!isAssigned) {
+                  pending.push({
+                    uid: `${g.name}-${c}-${p.subject}`,
+                    grade: g.name,
+                    className: c,
+                    subject: p.subject,
+                    hours: p.hours,
+                    isSubCourse: false
+                  });
+                }
+              }
+            });
+          });
+        });
+        return pending;
+      }, [grades, coursePlans, assignments, customSplits]);
+
+      // 智慧連動：一旦待分配課程發生變動，將不再處於 pending 狀態的 UIDs 從勾選列表中剔除
+      const computedPendingUids = useMemo(() => {
+        return pendingCourses.map(c => c.uid);
+      }, [pendingCourses]);
+
+      // 全校可用班級清單計算
+      const allAvailableClasses = useMemo(() => {
+        const list = [];
+        grades.forEach(g => {
+          g.classes.forEach(c => {
+            list.push({ grade: g.name, className: c, label: `${g.name} ${c}` });
+          });
+        });
+        return list;
+      }, [grades]);
+
+      // 依據篩選選單過濾教師
+      const filteredTeachersForDrag = useMemo(() => {
+        if (!selectedTeacherFilter) return teachers;
+        return teachers.filter(t => t === selectedTeacherFilter);
+      }, [teachers, selectedTeacherFilter]);
+
+      // 根據篩選器包裝過濾名單
+      const filteredTeachersForDragWrapper = useMemo(() => {
+        return filteredTeachersForDrag;
+      }, [filteredTeachersForDrag]);
+
+      // 按教師呈現功課表矩陣重整
+      const scheduleByTeacher = useMemo(() => {
+        if (!schedule) return {};
+        const teacherMap = {};
+        
+        teachers.forEach(t => {
+          teacherMap[t] = Array(timeConfig.days).fill(null).map(() => Array(timeConfig.periodsPerDay).fill(null));
+        });
+
+        for (const gradeName in schedule) {
+          for (const className in schedule[gradeName]) {
+            const classMatrix = schedule[gradeName][className];
+            for (let day = 0; day < timeConfig.days; day++) {
+              for (let period = 0; period < timeConfig.periodsPerDay; period++) {
+                const cell = classMatrix[day][period];
+                if (cell && teacherMap[cell.teacher]) {
+                  teacherMap[cell.teacher][day][period] = {
+                    subject: cell.subject,
+                    grade: gradeName,
+                    className: className
+                  };
+                }
+              }
+            }
+          }
+        }
+        return teacherMap;
+      }, [schedule, teachers, timeConfig]);
+
+      // ================= 3. 副作用處理 (useEffect) =================
+      useEffect(() => {
+        if (toast) {
+          const timer = setTimeout(() => setToast(null), 4000);
+          return () => clearTimeout(timer);
+        }
+      }, [toast]);
+
+      useEffect(() => {
+        if (selectedTeacherFilter && !teachers.includes(selectedTeacherFilter)) {
+          setSelectedTeacherFilter('');
+        }
+      }, [teachers, selectedTeacherFilter]);
+
+      useEffect(() => {
+        setSelectedCourseUids(prev => prev.filter(uid => computedPendingUids.includes(uid)));
+      }, [computedPendingUids]);
+
+      useEffect(() => {
+        setPreviewTimetable(null);
+      }, [editingCell]);
+
+      useEffect(() => {
+        setSelectedPlacementSlot(null);
+      }, [manualPlacementTarget]);
+
+      const unplacedLessons = useMemo(() => {
+        if (!schedule) return [];
+        
+        // 1. 統計課表內各配課已排入的節數
+        const placedCounts = {};
+        for (const gradeName in schedule) {
+          for (const className in schedule[gradeName]) {
+            const classMatrix = schedule[gradeName][className];
+            for (let d = 0; d < timeConfig.days; d++) {
+              for (let p = 0; p < timeConfig.periodsPerDay; p++) {
+                const cell = classMatrix[d][p];
+                if (cell) {
+                  const key = `${gradeName}-${className}-${cell.subject}-${cell.teacher}`;
+                  placedCounts[key] = (placedCounts[key] || 0) + 1;
+                }
+              }
+            }
+          }
+        }
+        
+        // 2. 對照配課計畫的應排節數，計算未排入節數
+        const unplaced = [];
+        assignments.forEach(assign => {
+          const key = `${assign.grade}-${assign.className}-${assign.subject}-${assign.teacher}`;
+          const placedCount = placedCounts[key] || 0;
+          const diff = assign.hours - placedCount;
+          if (diff > 0) {
+            unplaced.push({
+              assignmentId: assign.id,
+              grade: assign.grade,
+              className: assign.className,
+              subject: assign.subject,
+              teacher: assign.teacher,
+              hours: diff
+            });
+          }
+        });
+        
+        return unplaced;
+      }, [assignments, schedule, timeConfig]);
+
+      useEffect(() => {
+        if (!schedule) return;
+        
+        let total = 0;
+        assignments.forEach(assign => {
+          total += assign.hours;
+        });
+        
+        let placed = 0;
+        for (const gradeName in schedule) {
+          for (const className in schedule[gradeName]) {
+            const classMatrix = schedule[gradeName][className];
+            for (let d = 0; d < timeConfig.days; d++) {
+              for (let p = 0; p < timeConfig.periodsPerDay; p++) {
+                if (classMatrix[d][p]) {
+                  placed++;
+                }
+              }
+            }
+          }
+        }
+        
+        const conflicts = Math.max(0, total - placed);
+        setScheduleStats({ total, placed, conflicts });
+      }, [schedule, assignments, timeConfig]);
+
+      const TabButton = ({ step, icon, label }) => (
+        <button onClick={() => setActiveTab(step)}
+          className={`flex-1 flex items-center justify-center py-3 px-4 rounded-xl transition-all duration-200 whitespace-nowrap gap-2 ${
+            activeTab === step 
+              ? 'bg-white text-blue-700 font-extrabold shadow-sm scale-[1.02]' 
+              : 'text-slate-600 hover:bg-slate-200/60 hover:text-slate-800'
+          }`}
+        >
+          {icon({ className: "w-5 h-5" })}
+          <span className="text-sm md:text-base font-bold">{label}</span>
+        </button>
+      );
+
+      // ================= 5. 事件與工具函式 (Helpers) =================
+      const showToast = (message, type = 'success') => setToast({ message, type });
+
+      const getTeacherLabel = (teacherName) => {
+        const hr = homerooms[teacherName];
+        return hr ? `${teacherName} (${hr.grade}${hr.className}導師)` : teacherName;
+      };
+
+      const handleExportProject = () => {
+        try {
+          const projectData = { grades, timeConfig, coursePlans, teachers, homerooms, teacherBusyTimes, assignments, schedule, scheduleStats, customSplits };
+          const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(projectData));
+          const downloadAnchorNode = document.createElement('a');
+          downloadAnchorNode.setAttribute("href", dataStr);
+          downloadAnchorNode.setAttribute("download", `排課計畫_${new Date().toLocaleDateString().replace(/\//g, '')}.json`);
+          document.body.appendChild(downloadAnchorNode);
+          downloadAnchorNode.click();
+          downloadAnchorNode.remove();
+          showToast("專案已成功備份並開始下載！");
+        } catch (error) {
+          showToast("匯出失敗，請重試。", "error");
+        }
+      };
+
+      const handleImportProject = (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const d = JSON.parse(e.target.result);
+            if (d.grades) {
+              setGrades((d.grades || []).map(g => ({ ...g, offTimes: g.offTimes || {} })));
+              setTimeConfig(d.timeConfig || { days: 5, periodsPerDay: 7 });
+              setCoursePlans(d.coursePlans || {});
+              setTeachers(d.teachers || []);
+              setHomerooms(d.homerooms || {});
+              setTeacherBusyTimes(d.teacherBusyTimes || {});
+              setAssignments(d.assignments || []);
+              setCustomSplits(d.customSplits || {});
+              setSchedule(d.schedule !== undefined ? d.schedule : null);
+              setScheduleStats(d.scheduleStats || { total: 0, placed: 0, conflicts: 0 });
+              showToast("專案備份檔載入成功！");
+            } else {
+              showToast("檔案格式錯誤，無法載入此 JSON。", "error");
+            }
+          } catch (error) {
+            showToast("檔案解析失敗，請確認檔案完好。", "error");
+          }
+        };
+        reader.readAsText(file);
+        event.target.value = '';
+      };
+
+      const addGrade = () => {
+        const name = newGradeInput.trim();
+        if (!name || grades.some(g => g.name === name)) return; 
+        setGrades(prev => [...prev, { name, classes: [], offTimes: {} }]);
+        setNewGradeInput('');
+      };
+      
+      const removeGrade = (index) => setGrades(prev => prev.filter((_, i) => i !== index));
+
+      const toggleGradeOffTime = (gIndex, day, period) => {
+        setGrades(prev => prev.map((g, i) => {
+          if (i !== gIndex) return g;
+          const key = `${day}-${period}`;
+          const currentOff = g.offTimes || {};
+          const isOff = !!currentOff[key];
+          const nextOff = { ...currentOff };
+          if (isOff) {
+            delete nextOff[key];
+          } else {
+            nextOff[key] = true;
+          }
+          return { ...g, offTimes: nextOff };
+        }));
+      };
+
+      const clearAllGradeOffTimes = (gIndex) => {
+        setGrades(prev => prev.map((g, i) => {
+          if (i !== gIndex) return g;
+          return { ...g, offTimes: {} };
+        }));
+        showToast("已清空該年級的所有不上課時間。");
+      };
+      
+      const addClassToGrade = (gIndex) => {
+        const className = newClassInputs[gIndex]?.trim();
+        if (!className) return;
+        setGrades(prev => prev.map((g, i) => i === gIndex ? (g.classes.includes(className) ? g : { ...g, classes: [...g.classes, className] }) : g));
+        setNewClassInputs(prev => ({ ...prev, [gIndex]: '' }));
+      };
+      
+      const removeClassFromGrade = (gIndex, cIndex) => {
+        setGrades(prev => prev.map((g, i) => i === gIndex ? { ...g, classes: g.classes.filter((_, ci) => ci !== cIndex) } : g));
+      };
+
+      const handleBatchCreateCoursePlan = (gradeName) => {
+        addCoursePlan(gradeName);
+      };
+
+      const handleBatchCreateClassesWrapper = (gIndex) => {
+        handleBatchCreateClasses(gIndex);
+      };
+
+      const generateCourseAIPrompt = () => {
+        const gradeList = grades.length > 0 ? grades.map(g => g.name).join('、') : "1年級、2年級、3年級、4年級、5年級、6年級";
+        return `你是一位學校教務處課程規劃師。請幫我生成一份「各年級課程計畫節數對照」資料，格式為純 CSV (逗號分隔)，不要有任何 Markdown 包裹符號或多餘前言、結尾。
+
+欄位順序：年級,科目名稱,每週節數
+條件限制：
+1. 請涵蓋年級：${gradeList}
+2. 每個年級配置常見科目（如國語文、本土語文、英語文、數學、社會、藝術與人文、自然科學、生活課程、綜合活動、彈性學習等）。
+3. 每週節數在 0 到 6 之間 (有些年級沒有特定學科，如1、2年級沒有社會科，請確實設為 0)。
+
+請直接輸出純 CSV 內容：`;
+      };
+
+      const handleImportCourseCSV = () => {
+        if (!csvCourseInput.trim()) return;
+        const lines = csvCourseInput.trim().split('\n');
+        let importedCount = 0;
+        const newGradesSet = new Set();
+
+        const newPlans = JSON.parse(JSON.stringify(coursePlans));
+
+        lines.forEach((line) => {
+          if (line.trim() === '' || line.startsWith('年級,科目名稱')) return;
+          
+          const parts = line.split(',');
+          if (parts.length >= 3) {
+            const gName = parts[0].trim();
+            const sub = parts[1].trim();
+            
+            const parsedHrs = parseInt(parts[2].trim(), 10);
+            const hrs = isNaN(parsedHrs) ? 1 : parsedHrs;
+            
+            if (hrs <= 0) {
+              return;
+            }
+
+            newGradesSet.add(gName);
+
+            if (!newPlans[gName]) {
+              newPlans[gName] = [];
+            }
+            if (!newPlans[gName].some(p => p.subject === sub)) {
+              newPlans[gName].push({ id: Date.now() + Math.random(), subject: sub, hours: hrs });
+              importedCount++;
+            }
+          }
+        });
+
+        setCoursePlans(newPlans);
+
+        if (newGradesSet.size > 0) {
+          setGrades(prev => {
+            const existingNames = prev.map(g => g.name);
+            const gradesToAdd = [];
+            newGradesSet.forEach(gName => {
+              if (!existingNames.includes(gName)) {
+                gradesToAdd.push({ name: gName, classes: [], offTimes: {} });
+              }
+            });
+            return [...prev, ...gradesToAdd];
+          });
+        }
+
+        setCsvCourseInput('');
+        showToast(`成功批次解析，共匯入並呈現 ${importedCount} 筆課程計畫！`);
+      };
+
+      const generateTeacherAIPrompt = () => {
+        const classSamples = allAvailableClasses.length > 0 
+          ? allAvailableClasses.slice(0, 3).map(c => `${c.grade},${c.className}`).join('\n') 
+          : "1年級,甲班\n1年級,乙班\n2年級,甲班";
+        
+        return `你是一位學校導師與任課配置規劃助理。請幫我生成一組包含「導師設定」的「學校教師名單」資料，格式為純 CSV，不要有任何多餘文字或 Markdown 標記包裹。
+
+欄位順序：教師姓名,擔任導師年級,擔任導師班級
+條件限制：
+1. 請生成 15 位台灣常見姓名。
+2. 可選擇性配置導師職位（若無導師，後兩個欄位請留空，例如「林小美,,」）。
+3. 若要配置導師，擔任之導師年級與班級請參考以下真實可用名單：
+${classSamples}
+
+請直接輸出純 CSV 內容：`;
+      };
+
+      const handleImportTeacherCSV = () => {
+        if (!csvTeacherInput.trim()) return;
+        const lines = csvTeacherInput.trim().split('\n');
+        let addedCount = 0;
+        
+        const newTeachers = [...teachers];
+        const newHomerooms = { ...homerooms };
+
+        lines.forEach(line => {
+          if (line.trim() === '' || line.startsWith('教師姓名')) return;
+          const parts = line.split(',');
+          const name = parts[0]?.trim();
+          
+          if (name) {
+            if (!newTeachers.includes(name)) {
+              newTeachers.push(name);
+              addedCount++;
+            }
+            if (parts.length >= 3) {
+              const grade = parts[1]?.trim();
+              const cls = parts[2]?.trim();
+              if (grade && cls) {
+                newHomerooms[name] = { grade, className: cls };
+              }
+            }
+          }
+        });
+
+        setTeachers(newTeachers);
+        setHomerooms(newHomerooms);
+        setCsvTeacherInput('');
+        showToast(`批次解析完成，共成功匯入 ${addedCount} 位任課教師！`);
+      };
+
+      const addTeacher = () => {
+        const name = newTeacherInput.trim();
+        if (!name) return;
+        if (teachers.includes(name)) {
+          showToast(`教師「${name}」已存在！`, "error");
+          return;
+        }
+        setTeachers(prev => [...prev, name]);
+        setNewTeacherInput('');
+        showToast(`已成功新增教師：${name}`);
+      };
+
+      const removeTeacher = (teacherName) => {
+        if (!window.confirm(`確定要刪除教師「${teacherName}」嗎？此操作會一併清除其配課與不可排課設定。`)) return;
+        
+        setTeachers(prev => prev.filter(t => t !== teacherName));
+        
+        setHomerooms(prev => {
+          const next = { ...prev };
+          delete next[teacherName];
+          return next;
+        });
+        
+        setTeacherBusyTimes(prev => {
+          const next = { ...prev };
+          delete next[teacherName];
+          return next;
+        });
+
+        setAssignments(prev => prev.filter(a => a.teacher !== teacherName));
+        
+        if (busyTimesTarget === teacherName) {
+          setBusyTimesTarget(null);
+        }
+        if (selectedTeacherFilter === teacherName) {
+          setSelectedTeacherFilter('');
+        }
+        if (batchTargetTeacher === teacherName) {
+          setBatchTargetTeacher('');
+        }
+        
+        showToast(`已刪除教師：${teacherName}`);
+      };
+
+      const handleSetHomeroom = (teacherName, value) => {
+        setHomerooms(prev => {
+          const next = { ...prev };
+          if (!value) {
+            delete next[teacherName];
+          } else {
+            const [grade, className] = value.split('|');
+            // 移除非本人的同班級導師設定，確保一班只有一位導師
+            Object.keys(next).forEach(tName => {
+              if (next[tName] && next[tName].grade === grade && next[tName].className === className) {
+                delete next[tName];
+              }
+            });
+            next[teacherName] = { grade, className };
+          }
+          return next;
+        });
+      };
+
+      const getBusyHoursCount = (teacherName) => {
+        const teacherMap = teacherBusyTimes[teacherName] || {};
+        return Object.keys(teacherMap).length;
+      };
+
+      const handleDownloadCSV = (option) => {
+        if (!schedule) {
+          showToast("尚無課表資料，請先進行排課。", "error");
+          return;
+        }
+
+        let csvContent = "";
+        const weekdays = ['一', '二', '三', '四', '五', '六'];
+        const headers = ["對象", "識別", "節次"];
+        for (let i = 0; i < timeConfig.days; i++) {
+          headers.push(`星期${weekdays[i] || (i + 1)}`);
+        }
+
+        // Add UTF-8 BOM for Excel Chinese characters support
+        csvContent += "\uFEFF";
+        csvContent += headers.map(h => `"${h}"`).join(",") + "\n";
+
+        if (option === 'class') {
+          grades.forEach(grade => {
+            grade.classes.forEach(className => {
+              const classSchedule = schedule[grade.name]?.[className];
+              if (!classSchedule) return;
+
+              for (let pIndex = 0; pIndex < timeConfig.periodsPerDay; pIndex++) {
+                const row = [grade.name, className, `第 ${pIndex + 1} 節`];
+                for (let dIndex = 0; dIndex < timeConfig.days; dIndex++) {
+                  const lesson = classSchedule[dIndex][pIndex];
+                  if (lesson) {
+                    row.push(`${lesson.subject} (${getTeacherLabel(lesson.teacher)})`);
+                  } else {
+                    row.push("");
+                  }
+                }
+                csvContent += row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(",") + "\n";
+              }
+              csvContent += "\n";
+            });
+          });
+        } else {
+          teachers.forEach(teacher => {
+            const teacherMatrix = scheduleByTeacher[teacher];
+            if (!teacherMatrix) return;
+
+            for (let pIndex = 0; pIndex < timeConfig.periodsPerDay; pIndex++) {
+              const row = ["教師", getTeacherLabel(teacher), `第 ${pIndex + 1} 節`];
+              for (let dIndex = 0; dIndex < timeConfig.days; dIndex++) {
+                const cell = teacherMatrix[dIndex][pIndex];
+                const isBusy = !!(teacherBusyTimes[teacher]?.[`${dIndex}-${pIndex}`]);
+                if (isBusy) {
+                  row.push("❌ 不可排課");
+                } else if (cell) {
+                  row.push(`${cell.subject} (${cell.grade}${cell.className})`);
+                } else {
+                  row.push("");
+                }
+              }
+              csvContent += row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(",") + "\n";
+            }
+            csvContent += "\n";
+          });
+        }
+
+        try {
+          const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.setAttribute("href", url);
+          const prefix = option === 'class' ? "班級功課表" : "教師個人課表";
+          link.setAttribute("download", `${prefix}_${new Date().toLocaleDateString().replace(/\//g, '')}.csv`);
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          showToast("CSV 匯出成功！");
+        } catch (error) {
+          console.error(error);
+          showToast("CSV 匯出失敗，請重試。", "error");
+        }
+      };
+
+      const handlePrintPDF = (option) => {
+        if (!schedule) {
+          showToast("尚無課表資料，請先進行排課。", "error");
+          return;
+        }
+
+        const weekdays = ['一', '二', '三', '四', '五', '六'];
+        
+        let html = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="utf-8">
+            <title>${option === 'class' ? '班級課表' : '教師課表'}列印</title>
+            <style>
+              body { font-family: "Microsoft JhengHei", -apple-system, sans-serif; margin: 0; padding: 0; color: #1e293b; background: #fff; }
+              .page-break {
+                page-break-after: always;
+                box-sizing: border-box;
+                height: 180mm;
+                padding: 10px 0;
+                background: #fff;
+                overflow: hidden;
+              }
+              h2 {
+                text-align: center;
+                margin: 0 0 5px 0;
+                font-size: 24px;
+                font-weight: 800;
+                color: #0f172a;
+              }
+              .subtitle {
+                text-align: right;
+                font-size: 11px;
+                font-weight: bold;
+                color: #64748b;
+                margin-bottom: 5px;
+              }
+              table {
+                width: 100%;
+                height: 135mm;
+                border-collapse: collapse;
+                table-layout: fixed;
+                border: 1.5px solid #0f172a;
+              }
+              tr {
+                page-break-inside: avoid;
+                break-inside: avoid;
+              }
+              th, td { border: 1px solid #cbd5e1; padding: 8px 4px; text-align: center; vertical-align: middle; }
+              th { background-color: #0f172a; color: #ffffff; height: 38px; }
+              .period-col { background-color: #f8fafc; font-weight: 800; color: #475569; border-right: 1.5px solid #0f172a; }
+              .subject { font-weight: 800; font-size: 13.5px; display: block; color: #111827; }
+              .detail { font-size: 10.5px; color: #4b5563; font-weight: 800; display: block; }
+              .rest-row { background-color: #fffbeb; color: #d97706; font-weight: 800; height: 24px; border-top: 1.5px solid #0f172a; border-bottom: 1.5px solid #0f172a; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+              .busy { background-color: #fef2f2; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+              .grade-off { background-color: #f1f5f9; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+              .has-lesson-class { background-color: #f3f4f6; color: #111827; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+              .has-lesson-teacher { background-color: #f3f4f6; color: #111827; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            </style>
+          </head>
+          <body>
+        `;
+
+        if (option === 'class') {
+          grades.forEach((grade) => {
+            grade.classes.forEach((className) => {
+              const classSchedule = schedule[grade.name]?.[className];
+              if (!classSchedule) return;
+              html += `<div class="page-break"><h2>${grade.name} ${className} 班級課表</h2><div class="subtitle">出表時間: ${new Date().toLocaleDateString()}</div><table><thead><tr><th style="width: 75px;">節次 \\ 星期</th>${Array.from({length: timeConfig.days}).map((_, i) => `<th>星期${weekdays[i] || (i + 1)}</th>`).join('')}</tr></thead><tbody>`;
+              for (let pIndex = 0; pIndex < timeConfig.periodsPerDay; pIndex++) {
+                if (pIndex === 4 || (timeConfig.periodsPerDay > 7 && pIndex === 5 && timeConfig.periodsPerDay !== 8)) html += `<tr><td colspan="${timeConfig.days + 1}" class="rest-row">中午休息時間</td></tr>`;
+                html += `<tr><td class="period-col">第 ${pIndex + 1} 節</td>`;
+                for (let dIndex = 0; dIndex < timeConfig.days; dIndex++) {
+                  const lesson = classSchedule[dIndex][pIndex];
+                  if (grade.offTimes?.[`${dIndex}-${pIndex}`]) html += `<td class="grade-off"></td>`;
+                  else if (lesson) html += `<td class="has-lesson-class"><span class="subject">${lesson.subject}</span><span class="detail">${getTeacherLabel(lesson.teacher)}</span></td>`;
+                  else html += `<td>-</td>`;
+                }
+                html += `</tr>`;
+              }
+              html += `</tbody></table></div>`;
+            });
+          });
+        } else {
+          teachers.forEach((teacher) => {
+            const matrix = scheduleByTeacher[teacher];
+            if (!matrix) return;
+            html += `<div class="page-break"><h2>${getTeacherLabel(teacher)} 教師個人課表</h2><div class="subtitle">每週授課: ${matrix.flat().filter(Boolean).length} 節 | 出表時間: ${new Date().toLocaleDateString()}</div><table><thead><tr><th style="width: 75px;">節次 \\ 星期</th>${Array.from({length: timeConfig.days}).map((_, i) => `<th>星期${weekdays[i] || (i + 1)}</th>`).join('')}</tr></thead><tbody>`;
+            for (let pIndex = 0; pIndex < timeConfig.periodsPerDay; pIndex++) {
+              if (pIndex === 4 || (timeConfig.periodsPerDay > 7 && pIndex === 5 && timeConfig.periodsPerDay !== 8)) html += `<tr><td colspan="${timeConfig.days + 1}" class="rest-row">中午休息時間</td></tr>`;
+              html += `<tr><td class="period-col">第 ${pIndex + 1} 節</td>`;
+              for (let dIndex = 0; dIndex < timeConfig.days; dIndex++) {
+                const cell = matrix[dIndex][pIndex];
+                if (teacherBusyTimes[teacher]?.[`${dIndex}-${pIndex}`]) html += `<td class="busy"></td>`;
+                else if (cell) html += `<td class="has-lesson-teacher"><span class="subject">${cell.subject}</span><span class="detail">${cell.grade}${cell.className}</span></td>`;
+                else html += `<td>-</td>`;
+              }
+              html += `</tr>`;
+            }
+            html += `</tbody></table></div>`;
+          });
+        }
+        html += `</body></html>`;
+        const el = document.createElement('div');
+        el.innerHTML = html;
+        document.body.appendChild(el);
+        html2pdf().from(el).set({
+          margin: 10,
+          filename: `${option === 'class' ? '班級課表' : '教師課表'}_${new Date().toLocaleDateString().replace(/\//g, '')}.pdf`,
+          html2canvas: { scale: 2, logging: false },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
+          pagebreak: { mode: ['css', 'legacy'] }
+        }).save().then(() => { document.body.removeChild(el); });
+      };
+
+      const handleDownloadDocx = (option) => {
+        if (!schedule) {
+          showToast("尚無課表資料，請先進行排課。", "error");
+          return;
+        }
+
+        const docxObj = window.docx;
+        if (!docxObj) {
+          showToast("Word 匯出套件尚未載入完成，請稍候再試。", "error");
+          return;
+        }
+
+        const weekdays = ['一', '二', '三', '四', '五', '六'];
+        
+        // Helper to construct a table cell with Paragraphs and TextRuns
+        const createCell = (text, options = {}) => {
+          const Paragraph = docxObj.Paragraph;
+          const TextRun = docxObj.TextRun;
+          const TableCell = docxObj.TableCell;
+          
+          const paragraphs = [];
+          if (Array.isArray(text)) {
+            text.forEach(item => {
+              paragraphs.push(new Paragraph({
+                children: [
+                  new TextRun({
+                    text: item.text,
+                    bold: !!item.bold,
+                    color: item.color || "111827",
+                    size: item.size || 20 // Half-points (20 = 10pt)
+                  })
+                ],
+                alignment: docxObj.AlignmentType?.CENTER || "center",
+                spacing: { before: 40, after: 40 }
+              }));
+            });
+          } else {
+            paragraphs.push(new Paragraph({
+              children: [
+                new TextRun({
+                  text: String(text),
+                  bold: !!options.bold,
+                  color: options.color || "111827",
+                  size: options.size || 20
+                })
+              ],
+              alignment: docxObj.AlignmentType?.CENTER || "center",
+              spacing: { before: 40, after: 40 }
+            }));
+          }
+
+          const cellOptions = {
+            children: paragraphs,
+            verticalAlign: docxObj.VerticalAlign?.CENTER || "center",
+            margins: { top: 120, bottom: 120, left: 120, right: 120 }
+          };
+
+          if (options.fill) cellOptions.shading = { fill: options.fill };
+          if (options.columnSpan) cellOptions.columnSpan = options.columnSpan;
+
+          return new TableCell(cellOptions);
+        };
+
+        const children = [];
+        let isFirstPage = true;
+
+        if (option === 'class') {
+          grades.forEach((grade) => {
+            grade.classes.forEach((className) => {
+              const classSchedule = schedule[grade.name]?.[className];
+              if (!classSchedule) return;
+
+              // Title Page/Section Header
+              children.push(new docxObj.Paragraph({
+                children: [new docxObj.TextRun({ text: `${grade.name} ${className} 班級課表`, bold: true, size: 32, color: "0f172a" })],
+                alignment: docxObj.AlignmentType?.CENTER || "center",
+                spacing: { before: isFirstPage ? 0 : 240, after: 100 },
+                pageBreakBefore: !isFirstPage
+              }));
+              isFirstPage = false;
+
+              // Subtitle
+              children.push(new docxObj.Paragraph({
+                children: [new docxObj.TextRun({ text: `出表時間: ${new Date().toLocaleDateString()}`, bold: true, size: 18, color: "64748b" })],
+                alignment: docxObj.AlignmentType?.RIGHT || "right",
+                spacing: { after: 120 }
+              }));
+
+              // Rows list
+              const tableRows = [];
+
+              // Table Header Row
+              const headerCells = [createCell("節次 \\ 星期", { bold: true, color: "ffffff", fill: "0f172a", size: 22 })];
+              for (let i = 0; i < timeConfig.days; i++) {
+                headerCells.push(createCell(`星期${weekdays[i] || (i + 1)}`, { bold: true, color: "ffffff", fill: "0f172a", size: 22 }));
+              }
+              tableRows.push(new docxObj.TableRow({ children: headerCells, height: { value: 600, rule: docxObj.HeightRule?.ATLEAST || "atLeast" } }));
+
+              // Timetable Body Rows
+              for (let pIndex = 0; pIndex < timeConfig.periodsPerDay; pIndex++) {
+                // Lunch Break
+                if (pIndex === 4 || (timeConfig.periodsPerDay > 7 && pIndex === 5 && timeConfig.periodsPerDay !== 8)) {
+                  tableRows.push(new docxObj.TableRow({
+                    children: [createCell("中午休息時間", { bold: true, color: "d97706", fill: "fffbeb", size: 20, columnSpan: timeConfig.days + 1 })],
+                    height: { value: 400, rule: docxObj.HeightRule?.ATLEAST || "atLeast" }
+                  }));
+                }
+
+                // Standard Period Row
+                const cells = [createCell(`第 ${pIndex + 1} 節`, { bold: true, color: "475569", fill: "f8fafc", size: 20 })];
+                for (let dIndex = 0; dIndex < timeConfig.days; dIndex++) {
+                  const lesson = classSchedule[dIndex][pIndex];
+                  const isGradeOff = !!(grade.offTimes?.[`${dIndex}-${pIndex}`]);
+                  
+                  if (isGradeOff) {
+                    cells.push(createCell("❌ 不上課", { fill: "f1f5f9", color: "94a3b8", size: 20 }));
+                  } else if (lesson) {
+                    cells.push(createCell([
+                      { text: lesson.subject, bold: true, color: "111827", size: 22 },
+                      { text: getTeacherLabel(lesson.teacher), bold: true, color: "4b5563", size: 19 }
+                    ], { fill: "f3f4f6" }));
+                  } else {
+                    cells.push(createCell("-", { color: "cbd5e1", size: 20 }));
+                  }
+                }
+                tableRows.push(new docxObj.TableRow({ children: cells, height: { value: 900, rule: docxObj.HeightRule?.ATLEAST || "atLeast" } }));
+              }
+
+              // Create Table
+              children.push(new docxObj.Table({
+                rows: tableRows,
+                width: { size: 100, type: docxObj.WidthType?.PERCENTAGE || "pct" },
+                borders: {
+                  top: { style: docxObj.BorderStyle?.SINGLE || "single", size: 4, color: "cbd5e1" },
+                  bottom: { style: docxObj.BorderStyle?.SINGLE || "single", size: 4, color: "cbd5e1" },
+                  left: { style: docxObj.BorderStyle?.SINGLE || "single", size: 4, color: "cbd5e1" },
+                  right: { style: docxObj.BorderStyle?.SINGLE || "single", size: 4, color: "cbd5e1" },
+                  insideHorizontal: { style: docxObj.BorderStyle?.SINGLE || "single", size: 4, color: "cbd5e1" },
+                  insideVertical: { style: docxObj.BorderStyle?.SINGLE || "single", size: 4, color: "cbd5e1" }
+                }
+              }));
+            });
+          });
+        } else {
+          // teacher option
+          teachers.forEach((teacher) => {
+            const teacherMatrix = scheduleByTeacher[teacher];
+            if (!teacherMatrix) return;
+            const totalHours = teacherMatrix.flat().filter(Boolean).length;
+
+            // Title Header
+            children.push(new docxObj.Paragraph({
+              children: [new docxObj.TextRun({ text: `${getTeacherLabel(teacher)} 教師個人課表`, bold: true, size: 32, color: "0f172a" })],
+              alignment: docxObj.AlignmentType?.CENTER || "center",
+              spacing: { before: isFirstPage ? 0 : 240, after: 100 },
+              pageBreakBefore: !isFirstPage
+            }));
+            isFirstPage = false;
+
+            // Subtitle
+            children.push(new docxObj.Paragraph({
+              children: [new docxObj.TextRun({ text: `每週授課: ${totalHours} 節  |  出表時間: ${new Date().toLocaleDateString()}`, bold: true, size: 18, color: "64748b" })],
+              alignment: docxObj.AlignmentType?.RIGHT || "right",
+              spacing: { after: 120 }
+            }));
+
+            // Rows list
+            const tableRows = [];
+
+            // Table Header Row
+            const headerCells = [createCell("節次 \\ 星期", { bold: true, color: "ffffff", fill: "0f172a", size: 22 })];
+            for (let i = 0; i < timeConfig.days; i++) headerCells.push(createCell(`星期${weekdays[i] || (i + 1)}`, { bold: true, color: "ffffff", fill: "0f172a", size: 22 }));
+            tableRows.push(new docxObj.TableRow({ children: headerCells, height: { value: 600, rule: docxObj.HeightRule?.ATLEAST || "atLeast" } }));
+
+            // Body Rows
+            for (let pIndex = 0; pIndex < timeConfig.periodsPerDay; pIndex++) {
+              if (pIndex === 4 || (timeConfig.periodsPerDay > 7 && pIndex === 5 && timeConfig.periodsPerDay !== 8)) {
+                tableRows.push(new docxObj.TableRow({
+                  children: [createCell("中午休息時間", { bold: true, color: "d97706", fill: "fffbeb", size: 20, columnSpan: timeConfig.days + 1 })],
+                  height: { value: 400, rule: docxObj.HeightRule?.ATLEAST || "atLeast" }
+                }));
+              }
+
+              const cells = [createCell(`第 ${pIndex + 1} 節`, { bold: true, color: "475569", fill: "f8fafc", size: 20 })];
+              for (let dIndex = 0; dIndex < timeConfig.days; dIndex++) {
+                const cell = teacherMatrix[dIndex][pIndex];
+                const isBusy = !!(teacherBusyTimes[teacher]?.[`${dIndex}-${pIndex}`]);
+                if (isBusy) cells.push(createCell("", { fill: "fef2f2" }));
+                else if (cell) cells.push(createCell([
+                  { text: cell.subject, bold: true, color: "111827", size: 22 },
+                  { text: `${cell.grade}${cell.className}`, bold: true, color: "4b5563", size: 19 }
+                ], { fill: "f3f4f6" }));
+                else cells.push(createCell("-", { color: "cbd5e1", size: 20 }));
+              }
+              tableRows.push(new docxObj.TableRow({ children: cells, height: { value: 900, rule: docxObj.HeightRule?.ATLEAST || "atLeast" } }));
+            }
+
+            // Create Table
+            children.push(new docx.Table({
+              rows: tableRows,
+              width: { size: 100, type: docx.WidthType?.PERCENTAGE || "pct" },
+              borders: {
+                top: { style: docx.BorderStyle?.SINGLE || "single", size: 4, color: "cbd5e1" },
+                bottom: { style: docx.BorderStyle?.SINGLE || "single", size: 4, color: "cbd5e1" },
+                left: { style: docx.BorderStyle?.SINGLE || "single", size: 4, color: "cbd5e1" },
+                right: { style: docx.BorderStyle?.SINGLE || "single", size: 4, color: "cbd5e1" },
+                insideHorizontal: { style: docx.BorderStyle?.SINGLE || "single", size: 4, color: "cbd5e1" },
+                insideVertical: { style: docx.BorderStyle?.SINGLE || "single", size: 4, color: "cbd5e1" }
+              }
+            }));
+          });
+        }
+
+        const doc = new docx.Document({
+          sections: [{
+            properties: {
+              page: {
+                size: { width: 16838, height: 11906 },
+                orientation: "landscape",
+                margin: { top: 720, bottom: 720, left: 720, right: 720 }
+              }
+            },
+            children: children
+          }]
+        });
+
+        showToast("Word DOCX 正在排版並生成中，請稍候...", "success");
+
+        docx.Packer.toBlob(doc).then((blob) => {
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.setAttribute("href", url);
+          const prefix = option === 'class' ? "班級功課表" : "教師個人課表";
+          link.setAttribute("download", `${prefix}_${new Date().toLocaleDateString().replace(/\//g, '')}.docx`);
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          showToast("Word DOCX 課表已成功下載！");
+        }).catch(err => {
+          console.error("docx.js packaging failed:", err);
+          showToast("docx 封裝失敗，請重試。", "error");
+        });
+      };
+
+      const toggleBusyTimeForTeacher = (teacherName, day, period) => {
+        const key = `${day}-${period}`;
+        setTeacherBusyTimes(prev => {
+          const teacherMap = prev[teacherName] || {};
+          const isBusy = !!teacherMap[key];
+          
+          const nextMap = { ...teacherMap };
+          if (isBusy) {
+            delete nextMap[key];
+          } else {
+            nextMap[key] = true;
+          }
+          
+          return {
+            ...prev,
+            [teacherName]: nextMap
+          };
+        });
+      };
+
+      const toggleBusyTime = (day, period) => {
+        if (!busyTimesTarget) return;
+        toggleBusyTimeForTeacher(busyTimesTarget, day, period);
+      };
+
+      const clearAllBusyTimes = () => {
+        if (!busyTimesTarget) return;
+        setTeacherBusyTimes(prev => {
+          const next = { ...prev };
+          delete next[busyTimesTarget];
+          return next;
+        });
+        showToast(`已清除 ${busyTimesTarget} 的所有不可排課時間！`);
+      };
+
+      const handleDragStart = (e, course) => {
+        e.dataTransfer.setData('application/json', JSON.stringify(course));
+        e.dataTransfer.effectAllowed = 'move';
+      };
+
+      const handleDropToTeacher = (e, teacherName) => {
+        e.preventDefault();
+        setDragOverTeacher(null);
+        try {
+          const course = JSON.parse(e.dataTransfer.getData('application/json'));
+          setAssignments(prev => [...prev, {
+            id: Date.now() + Math.random(),
+            teacher: teacherName, 
+            grade: course.grade, 
+            className: course.className, 
+            subject: course.subject, 
+            hours: course.hours
+          }]);
+        } catch (err) { console.error("Drop failed", err); }
+      };
+
+      const handleDragOverContainer = (e) => {
+        if (!selectedTeacherFilter) return;
+        e.preventDefault();
+        setDragOverTeacher(selectedTeacherFilter);
+      };
+
+      const handleDragLeaveContainer = () => {
+        setDragOverTeacher(null);
+      };
+
+      const handleDropContainer = (e) => {
+        if (!selectedTeacherFilter) return;
+        handleDropToTeacher(e, selectedTeacherFilter);
+      };
+
+      const handleToggleSelectCourse = (uid) => {
+        setSelectedCourseUids(prev => 
+          prev.includes(uid) ? prev.filter(id => id !== uid) : [...prev, uid]
+        );
+      };
+
+      const handleSelectAllPending = () => {
+        if (selectedCourseUids.length === pendingCourses.length) {
+          setSelectedCourseUids([]);
+        } else {
+          setSelectedCourseUids(pendingCourses.map(c => c.uid));
+        }
+      };
+
+      const handleBatchAssign = () => {
+        if (!batchTargetTeacher || selectedCourseUids.length === 0) return;
+        const coursesToAssign = pendingCourses.filter(c => selectedCourseUids.includes(c.uid));
+        
+        setAssignments(prev => {
+          const newAssigns = [...prev];
+          coursesToAssign.forEach((course, index) => {
+            newAssigns.push({
+              id: Date.now() + index + Math.random(),
+              teacher: batchTargetTeacher,
+              grade: course.grade,
+              className: course.className,
+              subject: course.subject,
+              hours: course.hours
+            });
+          });
+          return newAssigns;
+        });
+        
+        setSelectedCourseUids([]);
+        showToast(`成功批次指派 ${coursesToAssign.length} 門學科給 ${batchTargetTeacher}！`);
+      };
+
+      const removeAssignment = (id) => {
+        const assign = assignments.find(a => a.id === id);
+        if (assign) {
+          if (schedule) {
+            const nextSchedule = JSON.parse(JSON.stringify(schedule));
+            let modified = false;
+            const classSchedule = nextSchedule[assign.grade]?.[assign.className];
+            if (classSchedule) {
+              for (let d = 0; d < timeConfig.days; d++) {
+                for (let p = 0; p < timeConfig.periodsPerDay; p++) {
+                  const cell = classSchedule[d]?.[p];
+                  if (cell && cell.subject === assign.subject && cell.teacher === assign.teacher) {
+                    classSchedule[d][p] = null;
+                    modified = true;
+                  }
+                }
+              }
+            }
+            if (modified) setSchedule(nextSchedule);
+          }
+          setAssignments(prev => prev.filter(a => a.id !== id));
+          showToast(`已成功將「${assign.subject}」課程退回未分配清單！`);
+        }
+      };
+
+      const openSplitModal = (course) => {
+        const key = `${course.grade}-${course.className}-${course.subject}`;
+        const existingSplits = customSplits[key];
+        
+        setSplitTarget(course);
+        if (existingSplits && existingSplits.length > 0) {
+          setSplitInputs(existingSplits.map(s => ({ subject: s.subject, hours: s.hours })));
+        } else {
+          setSplitInputs([
+            { subject: `${course.subject}A`, hours: Math.ceil(course.hours / 2) },
+            { subject: `${course.subject}B`, hours: Math.floor(course.hours / 2) }
+          ]);
+        }
+      };
+
+      const handleRestoreSplit = (course) => {
+        const key = `${course.grade}-${course.className}-${course.subject}`;
+        
+        // Also check if any assignments are made using the split sub-courses, and delete them
+        const subCourses = customSplits[key] || [];
+        const subSubjects = subCourses.map(s => s.subject);
+        
+        setAssignments(prev => prev.filter(a => {
+          if (a.grade === course.grade && a.className === course.className && subSubjects.includes(a.subject)) {
+            return false;
+          }
+          return true;
+        }));
+        
+        // Clear them from schedule if they were scheduled
+        if (schedule) {
+          const nextSchedule = JSON.parse(JSON.stringify(schedule));
+          let modified = false;
+          const classSchedule = nextSchedule[course.grade]?.[course.className];
+          if (classSchedule) {
+            for (let d = 0; d < timeConfig.days; d++) {
+              for (let p = 0; p < timeConfig.periodsPerDay; p++) {
+                const cell = classSchedule[d]?.[p];
+                if (cell && subSubjects.includes(cell.subject)) {
+                  classSchedule[d][p] = null;
+                  modified = true;
+                }
+              }
+            }
+          }
+          if (modified) setSchedule(nextSchedule);
+        }
+
+        setCustomSplits(prev => {
+          const nextSplits = { ...prev };
+          delete nextSplits[key];
+          return nextSplits;
+        });
+        
+        showToast(`已成功取消「${course.subject}」的拆分設定！`);
+      };
+
+      const handleImportCSV = () => {
+        if (!csvInput.trim()) return;
+        const lines = csvInput.trim().split('\n');
+        const newAssignments = [];
+        lines.forEach((line, index) => {
+          if (line.startsWith('教師姓名,') || line.trim() === '') return;
+          const parts = line.split(',');
+          if (parts.length >= 5) {
+            newAssignments.push({
+              id: Date.now() + index + Math.random(),
+              teacher: parts[0].trim(), grade: parts[1].trim(), className: parts[2].trim(), subject: parts[3].trim(), hours: parseInt(parts[4].trim(), 10) || 0,
+            });
+            if (!teachers.includes(parts[0].trim())) setTeachers(prev => [...prev, parts[0].trim()]);
+          }
+        });
+        setAssignments(prev => [...prev, ...newAssignments]);
+        setCsvInput('');
+        showToast(`配課結果匯入完成，成功建立 ${newAssignments.length} 筆配課關係！`);
+      };
+
+      const runAIScheduling = () => {
+        // 檢查是否已設定各年級不上課節數/時段
+        const totalOffPeriods = grades.reduce((sum, g) => sum + Object.keys(g.offTimes || {}).length, 0);
+        if (totalOffPeriods === 0 && grades.length > 0) {
+          const confirmSchedule = confirm("您尚未為任何年級設定「不上課節數（不上課時段）」，所有年級將預設為全部時間皆上課。確定要直接排課嗎？\n\n(建議先至「步驟一：年級與班級」點擊各年級旁的「設定不上課時段」，如低年級下午放學不上課，才可以排出正確課表。)");
+          if (!confirmSchedule) {
+            return;
+          }
+        }
+
+        setIsScheduling(true);
+        setSchedule(null);
+        setTimeout(() => {
+          const newSchedule = {};
+          grades.forEach(g => {
+            newSchedule[g.name] = {};
+            g.classes.forEach(c => {
+              newSchedule[g.name][c] = Array(timeConfig.days).fill(null).map(() => Array(timeConfig.periodsPerDay).fill(null));
+            });
+          });
+          let totalLessons = 0, placedLessons = 0, conflicts = 0;
+          let lessonsToSchedule = [];
+          
+          assignments.forEach(assign => {
+            for (let i = 0; i < assign.hours; i++) {
+              lessonsToSchedule.push({ ...assign });
+              totalLessons++;
+            }
+          });
+          
+          lessonsToSchedule.sort(() => Math.random() - 0.5);
+
+          lessonsToSchedule.forEach(lesson => {
+            let placed = false;
+            if (!newSchedule[lesson.grade] || !newSchedule[lesson.grade][lesson.className]) { conflicts++; return; }
+            
+            const startDay = Math.floor(Math.random() * timeConfig.days);
+            const startPeriod = Math.floor(Math.random() * timeConfig.periodsPerDay);
+
+            for (let i = 0; i < timeConfig.days && !placed; i++) {
+              const day = (startDay + i) % timeConfig.days;
+              for (let j = 0; j < timeConfig.periodsPerDay && !placed; j++) {
+                const period = (startPeriod + j) % timeConfig.periodsPerDay;
+                const gradeObj = grades.find(g => g.name === lesson.grade);
+                const isGradeOff = !!(gradeObj?.offTimes?.[`${day}-${period}`]);
+
+                if (!isGradeOff && newSchedule[lesson.grade][lesson.className][day][period] === null) {
+                  const busyKey = `${day}-${period}`;
+                  const isTeacherBusy = !!(teacherBusyTimes[lesson.teacher]?.[busyKey]);
+                  
+                  let teacherConflict = isTeacherBusy;
+                  
+                  if (!teacherConflict) {
+                    for (const g in newSchedule) {
+                      for (const c in newSchedule[g]) {
+                        const existingLesson = newSchedule[g][c][day][period];
+                        if (existingLesson && existingLesson.teacher === lesson.teacher) {
+                          teacherConflict = true;
+                        }
+                      }
+                    }
+                  }
+                  
+                  if (!teacherConflict) {
+                    newSchedule[lesson.grade][lesson.className][day][period] = { subject: lesson.subject, teacher: lesson.teacher };
+                    placed = true; 
+                    placedLessons++;
+                  }
+                }
+              }
+            }
+            if (!placed) conflicts++;
+          });
+          setSchedule(newSchedule);
+          setScheduleStats({ total: totalLessons, placed: placedLessons, conflicts });
+          setIsScheduling(false);
+          showToast(conflicts > 0 ? `自動排課完成！但有 ${conflicts} 堂課因教師衝堂或不可排課時段限制未能排入` : "恭喜！課表完美配對完成，且完美避開所有不可排課時段！");
+        }, 1500); 
+      };
+
+      const handleAssignTargetCourse = (day, period) => {
+        if (!manualPlacementTarget || !schedule) return;
+        const { grade, className, teacher, subject } = manualPlacementTarget;
+        
+        // 檢查該時段是否為該年級的不上課時段
+        const gradeObj = grades.find(g => g.name === grade);
+        if (gradeObj?.offTimes?.[`${day}-${period}`]) {
+          showToast(`無法指派！此時段為 ${grade} 的「不上課時段」。`, "error");
+          return;
+        }
+
+        // 檢查教師不可排課時段
+        const busyKey = `${day}-${period}`;
+        let bypassTeacherBusy = false;
+        if (teacherBusyTimes[teacher]?.[busyKey]) {
+          const confirmForce = confirm(`此時段目前為教師 ${getTeacherLabel(teacher)} 的「不可排課時段」。\n是否確定要強制排入此課程，並自動取消該教師此節的不可排課設定？`);
+          if (!confirmForce) return;
+          bypassTeacherBusy = true;
+        }
+
+        const nextSchedule = JSON.parse(JSON.stringify(schedule));
+        
+        if (bypassTeacherBusy) {
+          setTeacherBusyTimes(prev => {
+            const teacherMap = prev[teacher] || {};
+            const nextMap = { ...teacherMap };
+            delete nextMap[busyKey];
+            return {
+              ...prev,
+              [teacher]: nextMap
+            };
+          });
+        }
+        
+        // 檢查教師衝堂
+        let conflictClass = null;
+        for (const g in nextSchedule) {
+          for (const c in nextSchedule[g]) {
+            if (g === grade && c === className) continue;
+            const cell = nextSchedule[g][c][day][period];
+            if (cell && cell.teacher === teacher) {
+              conflictClass = `${g} ${c}`;
+              break;
+            }
+          }
+        }
+
+        if (conflictClass) {
+          const confirmOverride = confirm(`教師衝堂！${teacher} 此時段已在 [${conflictClass}] 授課。\n是否要強制清除 [${conflictClass}] 的課堂並排入本班？`);
+          if (!confirmOverride) return;
+          
+          const parts = conflictClass.split(' ');
+          const cg = parts[0];
+          const cc = parts[1];
+          nextSchedule[cg][cc][day][period] = null;
+        }
+
+        // 檢查本班該格是否已有課
+        const existing = nextSchedule[grade][className][day][period];
+        if (existing) {
+          const confirmOverwrite = confirm(`本班此時段已有課程 [${existing.subject} (${existing.teacher})]，是否確定要覆蓋？`);
+          if (!confirmOverwrite) return;
+        }
+
+        // 計算此學科在該班目前已排的堂數
+        let scheduledCount = 0;
+        for (let d = 0; d < timeConfig.days; d++) {
+          for (let p = 0; p < timeConfig.periodsPerDay; p++) {
+            const cell = nextSchedule[grade][className][d]?.[p];
+            if (cell && cell.subject === subject && cell.teacher === teacher) {
+              scheduledCount++;
+            }
+          }
+        }
+        
+        // 取得該配課的每週總排課節數
+        const origAssign = assignments.find(a => a.id === manualPlacementTarget.assignmentId);
+        const limitHours = origAssign ? origAssign.hours : manualPlacementTarget.hours;
+
+        // 若原本格子裡不是本課程，且目前排入數量已達上限，則阻擋
+        const isSelfOverwrite = existing && existing.subject === subject && existing.teacher === teacher;
+        if (!isSelfOverwrite && scheduledCount >= limitHours) {
+          showToast(`無法排入！此課程每週設定 ${limitHours} 節已全部排滿。`, "error");
+          return;
+        }
+
+        nextSchedule[grade][className][day][period] = { subject, teacher };
+        setSchedule(nextSchedule);
+        setSelectedPlacementSlot(null);
+        showToast(`已成功將 ${subject} 排入 ${grade} ${className} 的星期${['一','二','三','四','五','六'][day]} 第 ${period + 1} 節！`);
+      };
+
+      const handleModifyCellSchedule = (targetAssignmentId) => {
+        if (!editingCell || !schedule) return;
+        const { type, grade, className, teacher, day, period } = editingCell;
+        
+        const nextSchedule = JSON.parse(JSON.stringify(schedule));
+
+        if (targetAssignmentId === 'clear') {
+          if (type === 'class') {
+            nextSchedule[grade][className][day][period] = null;
+          } else if (type === 'teacher') {
+            const originalCell = scheduleByTeacher[teacher]?.[day]?.[period];
+            if (originalCell) {
+              nextSchedule[originalCell.grade][originalCell.className][day][period] = null;
+            }
+          }
+          setSchedule(nextSchedule);
+          setEditingCell(null);
+          showToast("已成功清空該時段的課程！");
+          return;
+        }
+
+        const assign = assignments.find(a => a.id === parseFloat(targetAssignmentId));
+        if (!assign) return;
+
+        // 檢查該時段是否為該年級的不上課時段
+        const targetGrade = type === 'class' ? grade : assign.grade;
+        const gradeObj = grades.find(g => g.name === targetGrade);
+        if (gradeObj?.offTimes?.[`${day}-${period}`]) {
+          showToast(`無法指派！此時段為 ${targetGrade} 的「不上課時段」。`, "error");
+          return;
+        }
+
+        const busyKey = `${day}-${period}`;
+        
+        if (teacherBusyTimes[assign.teacher]?.[busyKey]) {
+          showToast(`無法指派！${assign.teacher} 此時段設定為「不可排課時段」。`, "error");
+          return;
+        }
+
+        let conflictClass = null;
+        for (const g in nextSchedule) {
+          for (const c in nextSchedule[g]) {
+            if (type === 'class' && g === grade && c === className) continue;
+            
+            const cell = nextSchedule[g][c][day][period];
+            if (cell && cell.teacher === assign.teacher) {
+              conflictClass = `${g} ${c}`;
+              break;
+            }
+          }
+        }
+
+        if (conflictClass) {
+          showToast(`指派衝突！${assign.teacher} 此時段已在 [${conflictClass}] 授課中，無法指派！`, "error");
+          return;
+        }
+
+        if (type === 'class') {
+          // 檢查手動排入的節數是否已滿
+          let scheduledCount = 0;
+          for (let d = 0; d < timeConfig.days; d++) {
+            for (let p = 0; p < timeConfig.periodsPerDay; p++) {
+              const cell = nextSchedule[grade][className][d]?.[p];
+              if (cell && cell.subject === assign.subject && cell.teacher === assign.teacher) {
+                scheduledCount++;
+              }
+            }
+          }
+          const cellBefore = nextSchedule[grade][className][day][period];
+          const isSelfOverwrite = cellBefore && cellBefore.subject === assign.subject && cellBefore.teacher === assign.teacher;
+          if (!isSelfOverwrite && scheduledCount >= assign.hours) {
+            showToast(`無法排入！此課程每週設定 ${assign.hours} 節已全部排滿。`, "error");
+            return;
+          }
+
+          nextSchedule[grade][className][day][period] = {
+            subject: assign.subject,
+            teacher: assign.teacher
+          };
+        } else if (type === 'teacher') {
+          // 檢查手動排入的節數是否已滿
+          let scheduledCount = 0;
+          for (let d = 0; d < timeConfig.days; d++) {
+            for (let p = 0; p < timeConfig.periodsPerDay; p++) {
+              const cell = nextSchedule[assign.grade][assign.className][d]?.[p];
+              if (cell && cell.subject === assign.subject && cell.teacher === teacher) {
+                scheduledCount++;
+              }
+            }
+          }
+          const cellBefore = nextSchedule[assign.grade][assign.className][day][period];
+          const isSelfOverwrite = cellBefore && cellBefore.subject === assign.subject && cellBefore.teacher === teacher;
+          if (!isSelfOverwrite && scheduledCount >= assign.hours) {
+            showToast(`無法排入！此課程每週設定 ${assign.hours} 節已全部排滿。`, "error");
+            return;
+          }
+
+          nextSchedule[assign.grade][assign.className][day][period] = {
+            subject: assign.subject,
+            teacher: teacher
+          };
+        }
+
+        setSchedule(nextSchedule);
+        setEditingCell(null);
+        showToast("課表手動微調成功！");
+      };
+
+      const generateAssignAIPrompt = () => {
+        if (grades.length === 0) return "請先在步驟一設定年級與班級。";
+        const validGrades = grades.filter(g => g.classes.length > 0);
+        if (validGrades.length === 0) return "請先在步驟一為年級新增班級。";
+
+        const gradeNames = validGrades.map(g => g.name).join(' 或 ');
+        const classRules = validGrades.map(g => `${g.name}的班級只能為：${g.classes.join(', ')}`).join('；\n   ');
+        const teacherRule = teachers.length > 0 ? `6. 教師姓名請務必從名單中挑選：${teachers.join(', ')}` : "6. 教師姓名請隨機生成台灣姓名。";
+
+        return `你是一位排課配課專家。請幫我隨機生成一份「班級配課分派資料」，格式為純 CSV (逗號分隔)，不要有額外附言。
+
+欄位順序：教師姓名,任教年級,任教班級,任教科目,每週節數
+條件限制：
+1. 任教年級限制為：${gradeNames}
+2. 班級對應規則：
+   ${classRules}
+3. 任教科目請從 國語文, 數學, 英語文, 生活課程, 健康與體育, 彈性學習課程, 自然科學 等隨機挑選。
+4. 每週授課節數需在 1 到 6 之間。
+${teacherRule}
+
+請直接輸出純 CSV 內容：`;
+      };
+
+      return (
+        <div className="min-h-screen bg-slate-50 flex flex-col relative pb-20">
+          
+          {/* Toast 漂浮框 */}
+          {toast && (
+            <div className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-full shadow-lg flex items-center animate-bounce ${
+              toast.type === 'error' ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white'
+            }`}>
+              <Icon name="AlertCircle" className="w-5 h-5 mr-2" />
+              <span className="font-bold">{toast.message}</span>
+            </div>
+          )}
+
+          {/* Header 導航列 */}
+          <header className="bg-white shadow-sm border-b border-slate-200 sticky top-0 z-10">
+            <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between flex-wrap gap-4">
+              <div className="flex items-center text-blue-700">
+                <Icon name="CalendarDays" className="w-8 h-8 mr-3" />
+                <h1 className="text-xl md:text-2xl font-bold tracking-tight">剛好系列-校園排課系統</h1>
+              </div>
+            </div>
+          </header>
+
+          {/* Main Container */}
+          <main className="flex-grow max-w-7xl mx-auto px-4 py-8 w-full flex flex-col gap-6">
+            
+            {/* Horizontal Steps Tab Bar 橫式步驟分頁標籤 */}
+            <div className="flex bg-slate-100 p-1.5 rounded-2xl border border-slate-200 shadow-sm overflow-x-auto gap-2 flex-shrink-0">
+              <TabButton step={1} icon={(props) => <Icon name="Settings" {...props} />} label="1. 年級與班級設定" />
+              <TabButton step={2} icon={(props) => <Icon name="Clock" {...props} />} label="2. 時間框架設定" />
+              <TabButton step={3} icon={(props) => <Icon name="Users" {...props} />} label="3. 課程計畫與配課" />
+              <TabButton step={4} icon={(props) => <Icon name="Play" {...props} />} label="4. 執行自動排課" />
+            </div>
+
+            {/* Content Area 主工作區 */}
+            <div className="flex-grow bg-white rounded-2xl shadow-sm border border-slate-200 p-4 md:p-8 min-h-[700px] overflow-hidden flex flex-col">
+              
+              {/* ================= STEP 1: 班級設定 ================= */}
+              {activeTab === 1 && (
+                <div className="space-y-6">
+                  <div className="border-b border-slate-200 pb-4">
+                    <h2 className="text-2xl font-bold text-slate-800">階段一：建立全校年級與班級</h2>
+                    <p className="text-slate-500 mt-1">請新增年級，並利用「批次產生」或「手動加入」來建立所屬班級。</p>
+                  </div>
+                  <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex items-center gap-2">
+                    <input type="text" placeholder="輸入新年級名稱 (例: 1年級)" className="flex-grow p-2.5 rounded-lg border border-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" value={newGradeInput} onChange={(e) => setNewGradeInput(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && addGrade()} />
+                    <button onClick={addGrade} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg flex items-center text-sm font-bold transition-colors whitespace-nowrap"><Icon name="Plus" className="w-4 h-4 mr-1" /> 新增年級</button>
+                  </div>
+                  <div className="space-y-5">
+                    {grades.length === 0 && (
+                      <div className="text-center p-12 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50">
+                        <Icon name="Users" className="w-12 h-12 mx-auto text-slate-300 mb-3" />
+                        <p className="font-bold">系統為空設定狀態</p>
+                        <p className="text-sm mt-1">請由上方輸入年級開始建立（如匯入課程計畫，系統也會幫您自動補齊）。</p>
+                      </div>
+                    )}
+                    {grades.map((grade, gIndex) => (
+                      <div key={gIndex} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative group">
+                        <button onClick={() => removeGrade(gIndex)} className="absolute top-4 right-4 text-slate-300 hover:text-red-500 transition-colors p-1" title="刪除年級"><Icon name="Trash2" className="w-5 h-5" /></button>
+                        <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center flex-wrap gap-2">
+                          <div className="w-1.5 h-6 bg-blue-600 rounded-full mr-2"></div>
+                          <span>{grade.name}</span>
+                          <button 
+                            onClick={() => setGradeOffTimesTarget(gIndex)} 
+                            className="ml-3 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1 rounded-lg border font-extrabold flex items-center transition-colors shadow-sm"
+                            title="設定本年級固定不上課時段，例如低年級星期二下午不上課"
+                          >
+                            <Icon name="Clock" className="w-3.5 h-3.5 mr-1 text-slate-500" />
+                            設定不上課時段 ({Object.keys(grade.offTimes || {}).length} 節)
+                          </button>
+                        </h3>
+                        
+                        <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 mb-4 flex flex-wrap items-center gap-3">
+                          <span className="text-sm font-bold text-slate-600 flex items-center"><Icon name="BookCopy" className="w-4 h-4 mr-1"/>批次產生班級：</span>
+                          <div className="flex items-center bg-white border border-slate-300 rounded-md overflow-hidden">
+                            <span className="px-2 text-sm text-slate-500 bg-slate-100 border-r border-slate-300">數量</span>
+                            <input type="number" min="1" max="30" className="w-16 p-1.5 text-sm text-center focus:outline-none" value={batchClassConfig[gIndex]?.count || 3} onChange={e => setBatchClassConfig(prev => ({...prev, [gIndex]: {...(prev[gIndex]||{style:'甲乙丙', suffix:''}), count: parseInt(e.target.value)||1}}))} />
+                          </div>
+                          <select className="p-1.5 text-sm border border-slate-300 rounded-md bg-white focus:outline-none" value={batchClassConfig[gIndex]?.style || '甲乙丙'} onChange={e => setBatchClassConfig(prev => ({...prev, [gIndex]: {...(prev[gIndex]||{count:3, suffix:''}), style: e.target.value}}))}>
+                            <option value="甲乙丙">甲、乙、丙...</option><option value="123">1、2、3...</option><option value="ABC">A、B、C...</option>
+                          </select>
+                          <input type="text" placeholder="後綴(如:班)" className="w-20 p-1.5 text-sm border border-slate-300 rounded-md focus:outline-none" value={batchClassConfig[gIndex]?.suffix !== undefined ? batchClassConfig[gIndex]?.suffix : ''} onChange={e => setBatchClassConfig(prev => ({...prev, [gIndex]: {...(prev[gIndex]||{count:3, style:'甲乙丙'}), suffix: e.target.value}}))} />
+                          <button onClick={() => handleBatchCreateClassesWrapper(gIndex)} className="bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded-md text-sm font-bold transition-colors">產生</button>
+                        </div>
+                        <div className="flex flex-wrap gap-2 mb-4 min-h-[32px] items-center p-3 bg-white border border-dashed border-slate-200 rounded-lg">
+                          {grade.classes.length === 0 && <span className="text-sm text-amber-500 italic">目前無班級，請使用批次工具產生或手動單筆新增。</span>}
+                          {grade.classes.map((c, cIndex) => (
+                            <span key={cIndex} className="px-3 py-1.5 bg-blue-50 border border-blue-100 rounded-lg text-sm font-bold flex items-center text-blue-800 shadow-sm">
+                              {c} <button onClick={() => removeClassFromGrade(gIndex, cIndex)} className="ml-2 text-blue-300 hover:text-red-500 font-bold focus:outline-none">&times;</button>
+                            </span>
+                          ))}
+                        </div>
+                        <div className="flex items-center gap-2 max-w-sm">
+                          <input type="text" placeholder="單筆手動新增 (例: 101)" className="flex-grow p-2 rounded-md border border-slate-300 text-sm focus:outline-none focus:border-blue-500" value={newClassInputs[gIndex] || ''} onChange={(e) => setNewClassInputs({...newClassInputs, [gIndex]: e.target.value})} onKeyPress={(e) => e.key === 'Enter' && addClassToGrade(gIndex)} />
+                          <button onClick={() => addClassToGrade(gIndex)} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded-md text-sm font-bold transition-colors">單筆加入</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ================= STEP 2: 時間設定 ================= */}
+              {activeTab === 2 && (
+                <div className="space-y-6">
+                  <div className="border-b border-slate-200 pb-4">
+                    <h2 className="text-2xl font-bold text-slate-800">階段二：時間框架設定</h2>
+                    <p className="text-slate-500 mt-1">自訂學校每週上課天數與每天的總上課節數。</p>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                      <label className="block text-sm font-bold text-slate-700 mb-3 flex items-center"><Icon name="CalendarDays" className="w-5 h-5 mr-2 text-blue-500"/> 每週上課天數</label>
+                      <select value={timeConfig.days} onChange={(e) => setTimeConfig({...timeConfig, days: parseInt(e.target.value)})} className="w-full p-3 border border-slate-300 rounded-lg bg-slate-50 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold">
+                        <option value={4}>每週 4 天</option><option value={5}>每週 5 天 (標準)</option><option value={6}>每週 6 天</option>
+                      </select>
+                    </div>
+                    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                      <label className="block text-sm font-bold text-slate-700 mb-3 flex items-center"><Icon name="Clock" className="w-5 h-5 mr-2 text-blue-500"/> 每日上課節數</label>
+                      <select value={timeConfig.periodsPerDay} onChange={(e) => setTimeConfig({...timeConfig, periodsPerDay: parseInt(e.target.value)})} className="w-full p-3 border border-slate-300 rounded-lg bg-slate-50 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold">
+                        <option value={6}>每日 6 節</option><option value={7}>每日 7 節 (標準)</option><option value={8}>每日 8 節</option><option value={9}>每日 9 節</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ================= STEP 3: 課程、教師與配課 ================= */}
+              {activeTab === 3 && (
+                <div className="flex flex-col h-full flex-grow overflow-hidden">
+                  <div className="border-b border-slate-200 pb-3 mb-4 flex-shrink-0">
+                    <h2 className="text-2xl font-bold text-slate-800">階段三：課程計畫與配課中心</h2>
+                    <p className="text-slate-500 mt-1">設定領域課程、建立教師名單，並進行手動拖曳分配與課程計畫管理。</p>
+                  </div>
+
+                  {/* 子分頁導航 */}
+                  <div className="flex bg-slate-100 p-1 rounded-lg mb-6 overflow-x-auto flex-shrink-0">
+                    {[
+                      { id: 'courses', label: '1. 課程計畫', icon: 'BookOpen' },
+                      { id: 'teachers', label: '2. 任課教師 & 導師', icon: 'UserPlus' },
+                      { id: 'drag', label: '3. 手動拖曳配課', icon: 'GripVertical' }
+                    ].map(tab => (
+                      <button key={tab.id} onClick={() => setStep3Tab(tab.id)}
+                        className={`flex-1 flex items-center justify-center py-2 px-3 rounded-md text-sm font-bold transition-all whitespace-nowrap ${
+                          step3Tab === tab.id ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
+                        }`}
+                      >
+                        <Icon name={tab.icon} className="w-4 h-4 mr-1 md:mr-2" /> {tab.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* === 3.1 課程計畫 === */}
+                  {step3Tab === 'courses' && (
+                    <div className="flex flex-col h-full overflow-hidden gap-6">
+                      {/* AI 批次匯入 */}
+                      <div className="flex flex-col lg:flex-row gap-4 flex-shrink-0 bg-blue-50/50 p-4 rounded-xl border border-blue-100">
+                        <div className="flex-1 space-y-2">
+                          <div className="flex justify-between items-center">
+                            <h3 className="font-bold text-blue-900 flex items-center text-sm"><Icon name="Sparkles" className="w-4 h-4 mr-1 text-blue-600"/>課程計畫提示詞助理</h3>
+                            <button onClick={() => copyToClipboard(generateCourseAIPrompt(), setCopiedCoursePrompt)} className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded flex items-center font-bold shadow-sm">
+                              {copiedCoursePrompt ? <Icon name="Check" className="w-3 h-3 mr-1" /> : <Icon name="Copy" className="w-3 h-3 mr-1" />} {copiedCoursePrompt ? '已複製' : '複製'}
+                            </button>
+                          </div>
+                          <div className="p-2 bg-white rounded border border-blue-200 text-xs font-mono h-24 overflow-y-auto text-slate-600 shadow-inner leading-relaxed">
+                            {generateCourseAIPrompt()}
+                          </div>
+                        </div>
+                        <div className="flex-1 space-y-2">
+                          <h3 className="font-bold text-blue-900 flex items-center text-sm">貼上 CSV 批次匯入課程</h3>
+                          <textarea className="w-full h-24 p-2 border border-blue-200 rounded text-xs font-mono outline-none focus:ring-1 focus:ring-blue-500" placeholder="年級,科目名稱,每週節數&#10;1年級,國語文,6&#10;1年級,本土語文,1..." value={csvCourseInput} onChange={(e) => setCsvCourseInput(e.target.value)} />
+                          <div className="flex justify-end">
+                            <button onClick={handleImportCourseCSV} disabled={!csvCourseInput.trim()} className="text-xs bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white px-4 py-1.5 rounded font-bold flex items-center"><Icon name="Upload" className="w-3 h-3 mr-1" /> 批次匯入</button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 課程列表手動檢視與直接編輯 */}
+                      <div className="flex-grow overflow-y-auto pr-2 custom-scrollbar space-y-6">
+                        {grades.length === 0 ? (
+                          <div className="text-center p-8 text-slate-400">請先點選步驟一建立年級。</div>
+                        ) : (
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            {grades.map(grade => {
+                              const totalHours = (coursePlans[grade.name] || []).reduce((sum, p) => sum + p.hours, 0);
+
+                              return (
+                                <div key={grade.name} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm h-fit">
+                                  <h3 className="font-bold text-lg text-slate-800 mb-4 border-b pb-2 flex justify-between items-center">
+                                    <span className="flex items-center"><div className="w-2 h-4 bg-blue-600 rounded mr-2"></div>{grade.name} 課程計畫</span>
+                                    <span className="text-xs bg-blue-100 text-blue-800 px-2.5 py-1 rounded-full font-extrabold shadow-sm">
+                                      總共 {totalHours} 節 / 週
+                                    </span>
+                                  </h3>
+                                  
+                                  <div className="flex gap-2 mb-4">
+                                    <input type="text" placeholder="科目名稱" className="flex-grow p-2 border rounded-md text-sm focus:ring-1 focus:ring-blue-500 outline-none" value={newCourseInputs[grade.name]?.subject || ''} onChange={e => setNewCourseInputs(prev => ({...prev, [grade.name]: {...prev[grade.name], subject: e.target.value}}))} onKeyPress={e => e.key === 'Enter' && addCoursePlan(grade.name)} />
+                                    <div className="flex items-center border rounded-md bg-slate-50 overflow-hidden">
+                                      <span className="px-2 text-xs text-slate-500">節數</span>
+                                      <input type="number" min="1" max="10" className="w-12 p-2 text-sm text-center outline-none" value={newCourseInputs[grade.name]?.hours || 4} onChange={e => setNewCourseInputs(prev => ({...prev, [grade.name]: {...prev[grade.name], hours: parseInt(e.target.value)||0}}))} />
+                                    </div>
+                                    <button onClick={() => addCoursePlan(grade.name)} className="bg-slate-700 hover:bg-slate-800 text-white px-3 py-2 rounded-md font-bold text-sm">新增</button>
+                                  </div>
+                                  <div className="space-y-2">
+                                    {(coursePlans[grade.name] || []).length === 0 && <p className="text-sm text-slate-400 text-center py-4">目前此年級無課程 (可利用上方匯入)</p>}
+                                    {(coursePlans[grade.name] || []).map(course => (
+                                      <div key={course.id} className="flex justify-between items-center bg-slate-50 p-2 rounded-lg border border-slate-200">
+                                        <span className="font-bold text-slate-700 pl-2">{course.subject}</span>
+                                        <div className="flex items-center">
+                                          <span className="text-xs text-slate-400 mr-1 font-semibold">節數:</span>
+                                          <input 
+                                            type="number" 
+                                            min="0" 
+                                            max="20"
+                                            className="w-14 p-1 text-center text-sm font-bold font-mono bg-white border border-slate-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none mr-3 shadow-sm"
+                                            value={course.hours}
+                                            onChange={(e) => {
+                                              const val = parseInt(e.target.value, 10);
+                                              updateCoursePlanHours(grade.name, course.id, isNaN(val) ? 0 : val);
+                                            }}
+                                            title="手動修改此科目授課節數 (設為 0 自動刪除)"
+                                          />
+                                          <button onClick={() => removeCoursePlan(grade.name, course.id)} className="text-slate-400 hover:text-red-500 mr-2" title="刪除學科"><Icon name="Trash2" className="w-4 h-4" /></button>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* === 3.2 教師名單及導師、不可排課設定 === */}
+                  {step3Tab === 'teachers' && (
+                    <div className="flex flex-col h-full overflow-hidden gap-6">
+                      {/* AI 批次匯入 */}
+                      <div className="flex flex-col lg:flex-row gap-4 flex-shrink-0 bg-blue-50/50 p-4 rounded-xl border border-blue-100">
+                        <div className="flex-1 space-y-2">
+                          <div className="flex justify-between items-center">
+                            <h3 className="font-bold text-blue-900 flex items-center text-sm"><Icon name="Sparkles" className="w-4 h-4 mr-1 text-blue-600"/>教師與導師提示詞助理</h3>
+                            <button onClick={() => copyToClipboard(generateTeacherAIPrompt(), setCopiedTeacherPrompt)} className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded flex items-center font-bold shadow-sm">
+                              {copiedTeacherPrompt ? <Icon name="Check" className="w-3 h-3 mr-1" /> : <Icon name="Copy" className="w-3 h-3 mr-1" />} {copiedTeacherPrompt ? '已複製' : '複製'}
+                            </button>
+                          </div>
+                          <div className="p-2 bg-white rounded border border-blue-200 text-xs font-mono h-24 overflow-y-auto text-slate-600 shadow-inner leading-relaxed">
+                            {generateTeacherAIPrompt()}
+                          </div>
+                        </div>
+                        <div className="flex-1 space-y-2">
+                          <h3 className="font-bold text-blue-900 flex items-center text-sm">貼上名單 (CSV 欄位：教師姓名,導師年級,導師班級)</h3>
+                          <textarea className="w-full h-24 p-2 border border-blue-200 rounded text-xs font-mono outline-none focus:ring-1 focus:ring-blue-500" placeholder="教師姓名,導師年級,導師班級&#10;李大同,1年級,甲班&#10;林青霞,," value={csvTeacherInput} onChange={(e) => setCsvTeacherInput(e.target.value)} />
+                          <div className="flex justify-end">
+                            <button onClick={handleImportTeacherCSV} disabled={!csvTeacherInput.trim()} className="text-xs bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white px-4 py-1.5 rounded font-bold flex items-center"><Icon name="Upload" className="w-3 h-3 mr-1" /> 匯入教師與導師</button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 教師卡片清單與配置 (加入「不可排課設定」鈕) */}
+                      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex-grow flex flex-col overflow-hidden">
+                        <div className="flex justify-between items-end mb-4 border-b pb-4 flex-wrap gap-4">
+                          <div>
+                            <h3 className="font-bold text-slate-800 flex items-center text-base">全校任課教師卡片 <span className="ml-2 bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-xs font-extrabold">{teachers.length} 位</span></h3>
+                          </div>
+                          <div className="flex gap-2">
+                            <input type="text" placeholder="手動新增教師姓名" className="p-2 rounded-lg border border-slate-300 text-sm focus:ring-2 focus:ring-blue-500 outline-none w-48" value={newTeacherInput} onChange={e => setNewTeacherInput(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && addTeacher()} />
+                            <button onClick={addTeacher} className="bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold">加入</button>
+                          </div>
+                        </div>
+                        
+                        <div className="flex-grow overflow-y-auto custom-scrollbar">
+                          {teachers.length === 0 ? (
+                            <div className="text-center p-12 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl mt-4">尚無教師資料，請手動新增或使用批次功能匯入。</div>
+                          ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-1">
+                              {teachers.map(t => {
+                                const hr = homerooms[t];
+                                const busyCount = getBusyHoursCount(t);
+                                return (
+                                  <div key={t} className="bg-slate-50 border border-slate-200 hover:border-slate-300 rounded-xl p-4 shadow-sm flex flex-col justify-between group transition-all">
+                                    <div>
+                                      <div className="flex justify-between items-start">
+                                        <div className="flex items-center">
+                                          <Icon name="Users" className="w-5 h-5 text-slate-400 mr-2" />
+                                          <span className="font-extrabold text-slate-800 text-base">{t}</span>
+                                        </div>
+                                        <button onClick={() => removeTeacher(t)} className="p-1 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded" title="刪除教師"><Icon name="Trash2" className="w-4 h-4"/></button>
+                                      </div>
+                                      
+                                      {/* 導師職務設定 */}
+                                      <div className="mt-4 pt-3 border-t border-slate-200">
+                                        <label className="block text-[11px] font-bold text-slate-500 mb-1">班級導師設定：</label>
+                                        <select 
+                                          value={hr ? `${hr.grade}|${hr.className}` : ''}
+                                          onChange={(e) => handleSetHomeroom(t, e.target.value)}
+                                          className="w-full text-xs p-1.5 border border-slate-300 rounded bg-white font-medium text-slate-700 outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                                        >
+                                          <option value="">-- 無 (專任教師) --</option>
+                                          {allAvailableClasses.map(c => {
+                                            const assignedTo = Object.keys(homerooms).find(k => homerooms[k] && homerooms[k].grade === c.grade && homerooms[k].className === c.className && k !== t);
+                                            return (
+                                              <option key={`${c.grade}|${c.className}`} value={`${c.grade}|${c.className}`}>
+                                                {c.label} {assignedTo ? `(目前已指派給: ${assignedTo})` : ''}
+                                              </option>
+                                            );
+                                          })}
+                                        </select>
+                                      </div>
+                                    </div>
+
+                                    {/* 不可排課時段設定按鈕 */}
+                                    <div className="mt-3 pt-2 flex items-center justify-between border-t border-dashed border-slate-200">
+                                      <span className={`text-xs font-bold ${busyCount > 0 ? 'text-red-500' : 'text-slate-400'}`}>
+                                        不可排課：{busyCount} 節
+                                      </span>
+                                      <button 
+                                        onClick={() => setBusyTimesTarget(t)}
+                                        className="text-xs bg-white text-slate-700 hover:bg-slate-100 px-2.5 py-1.5 rounded-lg border border-slate-300 font-extrabold flex items-center transition-colors shadow-sm"
+                                      >
+                                        <Icon name="Clock" className="w-3.5 h-3.5 mr-1 text-slate-500" />
+                                        設定不可排課
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* === 3.3 手動拖曳配課 === */}
+                  {step3Tab === 'drag' && (
+                    <div className="flex flex-col md:flex-row gap-6 h-full flex-grow overflow-hidden">
+                      
+                      {/* 左側：待分配課程 */}
+                      <div className="w-full md:w-1/3 flex flex-col bg-slate-50 rounded-xl border border-slate-200 shadow-inner overflow-hidden">
+                        <div className="bg-slate-200 px-4 py-3 border-b border-slate-300 flex-shrink-0">
+                          <h3 className="font-bold text-slate-800 text-sm flex justify-between">待配對課程 
+                            <span className="bg-blue-600 text-white px-2 py-0.5 rounded-full text-xs">{pendingCourses.length}</span>
+                          </h3>
+                          <p className="text-xs text-slate-500 mt-1">可勾選多門課程批次指派，或按住直接拖曳。</p>
+                        </div>
+
+                        {/* 批次勾選指派控制面板 */}
+                        {pendingCourses.length > 0 && (
+                          <div className="bg-blue-50 p-3 border-b border-blue-100 flex flex-col gap-2 flex-shrink-0 shadow-sm">
+                            <div className="flex items-center justify-between">
+                              <button 
+                                onClick={handleSelectAllPending}
+                                className="text-xs text-blue-600 hover:text-blue-800 font-extrabold flex items-center gap-1 focus:outline-none"
+                              >
+                                <Icon name="Check" className="w-3.5 h-3.5" />
+                                {selectedCourseUids.length === pendingCourses.length ? "取消全選" : "全選所有課程"}
+                              </button>
+                              <span className="text-xs font-bold text-slate-600 bg-slate-200 px-2 py-0.5 rounded-full">已選取 {selectedCourseUids.length} 門</span>
+                            </div>
+                            {selectedCourseUids.length > 0 && (
+                              <div className="flex gap-2 items-center mt-1 animate-scale-up">
+                                <select
+                                  value={batchTargetTeacher}
+                                  onChange={e => setBatchTargetTeacher(e.target.value)}
+                                  className="text-xs p-2 border border-slate-300 rounded-lg bg-white font-extrabold text-slate-700 outline-none flex-grow shadow-sm cursor-pointer focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                >
+                                  <option value="">-- 指派給特定教師 --</option>
+                                  {teachers.map(t => (
+                                    <option key={t} value={t}>{getTeacherLabel(t)}</option>
+                                  ))}
+                                </select>
+                                <button
+                                  onClick={handleBatchAssign}
+                                  disabled={!batchTargetTeacher}
+                                  className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-extrabold text-xs px-3 py-2 rounded-lg transition-all whitespace-nowrap shadow-md flex items-center gap-1 active:scale-95"
+                                >
+                                  <Icon name="Sparkles" className="w-3.5 h-3.5 text-white" />
+                                  一鍵指派
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* 待分配課程清單 (包含 Checkbox) */}
+                        <div className="p-4 overflow-y-auto flex-grow space-y-3 custom-scrollbar">
+                          {pendingCourses.length === 0 ? (
+                            <div className="text-center text-sm text-slate-400 py-8">所有課程已分派完畢，或尚未設定班級與課程計畫。</div>
+                          ) : (
+                            pendingCourses.map(course => (
+                              <div 
+                                key={course.uid} draggable onDragStart={(e) => handleDragStart(e, course)}
+                                className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm cursor-grab active:cursor-grabbing hover:border-blue-400 hover:shadow-md transition-all flex items-center justify-between group"
+                              >
+                                <div className="flex items-center gap-3 min-w-0 flex-1 pr-2">
+                                  <input 
+                                    type="checkbox"
+                                    className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer flex-shrink-0"
+                                    checked={selectedCourseUids.includes(course.uid)}
+                                    onChange={() => handleToggleSelectCourse(course.uid)}
+                                    onClick={(e) => e.stopPropagation()} 
+                                  />
+                                  <div className="flex flex-col min-w-0">
+                                    <span className="text-xs font-bold text-slate-500">{course.grade} {course.className}</span>
+                                    <span className="font-black text-blue-700 text-base truncate">
+                                      {course.subject}
+                                      {course.isSubCourse && (
+                                        <span className="text-[11px] font-normal text-slate-400 block mt-0.5 bg-slate-100 px-1.5 py-0.5 rounded border truncate" title={course.originalSubject}>
+                                          拆分自: {course.originalSubject}
+                                        </span>
+                                      )}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                                  <div className="flex items-center gap-1.5">
+                                    {!course.isSubCourse && course.hours > 1 && (
+                                      <button 
+                                        onClick={(e) => { e.stopPropagation(); openSplitModal(course); }}
+                                        className="text-[10px] bg-blue-50 text-blue-600 hover:bg-blue-100 px-2 py-0.5 rounded border border-blue-200 transition-colors font-extrabold"
+                                        title="拆分為子課程"
+                                      >
+                                        拆分
+                                      </button>
+                                    )}
+                                    {course.isSubCourse && (
+                                      <button 
+                                        onClick={(e) => { e.stopPropagation(); handleRestoreSplit(course); }}
+                                        className="text-[10px] bg-red-50 text-red-600 hover:bg-red-100 px-2 py-0.5 rounded border border-red-200 transition-colors font-extrabold"
+                                        title="還原回原始學科"
+                                      >
+                                        還原
+                                      </button>
+                                    )}
+                                    <Icon name="GripVertical" className="w-4 h-4 text-slate-300 group-hover:text-blue-400" />
+                                  </div>
+                                  <span className="text-xs font-bold bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-100">{course.hours} 節</span>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+
+                      {/* 右側：教師配課區 */}
+                      <div className="w-full md:w-2/3 flex flex-col bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                        <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex-shrink-0 flex justify-between items-center flex-wrap gap-2">
+                          <h3 className="font-bold text-slate-800 text-sm">教師名單 (拖曳放置區)</h3>
+                          
+                          {/* 教師篩選器 */}
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-bold text-slate-500">篩選教師:</span>
+                            <select
+                              value={selectedTeacherFilter}
+                              onChange={(e) => setSelectedTeacherFilter(e.target.value)}
+                              className="text-xs p-1.5 border border-slate-300 rounded bg-white font-extrabold text-slate-700 outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer shadow-sm min-w-[150px]"
+                            >
+                              <option value="">顯示全部教師 ({teachers.length})</option>
+                              {teachers.map(t => (
+                                <option key={t} value={t}>{getTeacherLabel(t)}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                        
+                        <div 
+                          onDragOver={handleDragOverContainer}
+                          onDragLeave={handleDragLeaveContainer}
+                          onDrop={handleDropContainer}
+                          className={`p-4 overflow-y-auto flex-grow custom-scrollbar transition-all duration-200 ${
+                            selectedTeacherFilter && dragOverTeacher === selectedTeacherFilter 
+                              ? 'bg-blue-50/70 border-4 border-dashed border-blue-400 rounded-2xl m-2' 
+                              : 'bg-slate-100/30'
+                          }`}
+                        >
+                          {filteredTeachersForDragWrapper.length === 0 ? (
+                            <div className="text-center text-sm text-slate-400 py-12 border-2 border-dashed border-slate-300 rounded-xl bg-white">
+                              {teachers.length === 0 ? '請先至「2. 任課教師 & 導師」新增名單。' : '無符合篩選條件的教師。'}
+                            </div>
+                          ) : (
+                            <div className={`flex flex-col h-full ${selectedTeacherFilter ? 'justify-stretch' : 'grid grid-cols-1 lg:grid-cols-2 gap-4'}`}>
+                              {filteredTeachersForDragWrapper.map(teacher => {
+                                const teacherAssignments = assignments.filter(a => a.teacher === teacher);
+                                const totalHours = teacherAssignments.reduce((sum, a) => sum + a.hours, 0);
+                                const isDragOver = dragOverTeacher === teacher;
+
+                                return (
+                                  <div 
+                                    key={teacher} 
+                                    onDragOver={(e) => { 
+                                      if (!selectedTeacherFilter) {
+                                        e.preventDefault(); 
+                                        setDragOverTeacher(teacher); 
+                                      }
+                                    }} 
+                                    onDragLeave={() => {
+                                      if (!selectedTeacherFilter) setDragOverTeacher(null);
+                                    }} 
+                                    onDrop={(e) => {
+                                      if (!selectedTeacherFilter) handleDropToTeacher(e, teacher);
+                                    }}
+                                    className={`rounded-xl border-2 transition-all flex flex-col bg-white ${
+                                      selectedTeacherFilter ? 'flex-grow h-full min-h-[400px]' : ''
+                                    } ${
+                                      isDragOver ? 'border-blue-500 shadow-lg scale-[1.01] bg-blue-50' : 'border-slate-200 shadow-sm'
+                                    }`}
+                                  >
+                                    <div className={`px-4 py-3 border-b flex justify-between items-center ${isDragOver ? 'border-blue-200' : 'border-slate-100'}`}>
+                                      <span className="font-extrabold text-base text-slate-800 flex items-center pr-2">
+                                        <Icon name="Users" className={`w-5 h-5 mr-1.5 flex-shrink-0 ${isDragOver ? 'text-blue-500' : 'text-slate-400'}`}/> 
+                                        {getTeacherLabel(teacher)}
+                                      </span>
+                                      <span className={`text-sm font-bold px-2.5 py-1 rounded-full flex-shrink-0 ${totalHours > 0 ? 'bg-emerald-100 text-emerald-700 font-extrabold' : 'bg-slate-100 text-slate-500'}`}>共 {totalHours} 節</span>
+                                    </div>
+                                    <div className="p-4 flex-grow flex flex-col gap-2 overflow-y-auto">
+                                      {teacherAssignments.length === 0 ? (
+                                        <div className="flex-grow flex items-center justify-center text-sm text-slate-400 italic border border-dashed border-slate-200 rounded-xl py-12">
+                                          {selectedTeacherFilter ? '拖曳課程至此大區塊任一處皆能直接指派' : '將課程卡片拖曳至此處'}
+                                        </div>
+                                      ) : (
+                                        teacherAssignments.map(assign => (
+                                          <div key={assign.id} className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-sm flex justify-between items-center group font-medium shadow-sm animate-scale-up">
+                                            <div className="flex flex-col">
+                                              <span className="text-xs text-slate-500 font-bold">{assign.grade} {assign.className}</span>
+                                              <span className="font-black text-slate-700 text-[14px]">{assign.subject} <span className="text-xs font-bold text-blue-600 ml-1">({assign.hours}節)</span></span>
+                                            </div>
+                                            <button onClick={() => removeAssignment(assign.id)} className="text-red-400 hover:text-red-600 bg-white p-1.5 rounded shadow-sm opacity-0 group-hover:opacity-100 transition-all font-bold">退回</button>
+                                          </div>
+                                        ))
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+
+                </div>
+              )}
+
+              {/* ================= STEP 4: 自動排課與雙向檢視 ================= */}
+              {activeTab === 4 && (
+                <div className="animate-fade-in flex flex-col h-full overflow-hidden">
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b border-slate-200 pb-4 mb-6 gap-4 flex-shrink-0">
+                    <div>
+                      <h2 className="text-2xl font-bold text-slate-800">階段四：自動排課中心</h2>
+                      <p className="text-sm text-slate-500 mt-1">根據配課關係、年級不上課時段與教師不可排課設定，由演算法自動避開衝突進行排課。</p>
+                    </div>
+                    <button onClick={runAIScheduling} disabled={assignments.length === 0 || isScheduling}
+                      className={`px-6 py-3 rounded-xl font-bold text-white shadow-lg flex items-center transition-all transform hover:-translate-y-0.5 ${assignments.length === 0 ? 'bg-slate-300 cursor-not-allowed shadow-none transform-none' : isScheduling ? 'bg-blue-400' : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700'}`}
+                    >
+                      {isScheduling ? <><div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div> 排課分配中...</> : <><Icon name="Play" className="w-5 h-5 mr-2 fill-current" /> 開始自動排課</>}
+                    </button>
+                  </div>
+
+                  {schedule && (
+                    <div className="grid grid-cols-3 gap-4 mb-6 flex-shrink-0">
+                      <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-center shadow-sm"><div className="text-sm font-bold text-slate-500 mb-1">應排總節數</div><div className="text-3xl font-black text-slate-700">{scheduleStats.total}</div></div>
+                      <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-200 text-center shadow-sm"><div className="text-sm font-bold text-emerald-600 mb-1">成功排入</div><div className="text-3xl font-black text-emerald-700">{scheduleStats.placed}</div></div>
+                      <div className={`p-4 rounded-xl border text-center shadow-sm ${scheduleStats.conflicts > 0 ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200'}`}><div className={`text-sm font-bold mb-1 ${scheduleStats.conflicts > 0 ? 'text-red-600' : 'text-slate-500'}`}>無法排入(衝突數)</div><div className={`text-3xl font-black ${scheduleStats.conflicts > 0 ? 'text-red-700' : 'text-slate-700'}`}>{scheduleStats.conflicts}</div></div>
+                    </div>
+                  )}
+
+                  {!schedule && !isScheduling && (
+                    <div className="flex-grow flex items-center justify-center border-2 border-dashed border-slate-200 rounded-2xl p-16 text-slate-400 flex-col bg-slate-50/50">
+                      <Icon name="CalendarDays" className="w-16 h-16 mb-4 text-slate-300" />
+                      <p className="font-bold text-lg text-slate-500">準備完成，請執行自動排課</p>
+                      {assignments.length === 0 && <p className="text-sm mt-2 text-amber-500">提示：請先在「步驟三」完成教師與班級課程配課。</p>}
+                    </div>
+                  )}
+
+                  {/* 排課成功：呈現檢視篩選器、手動微調、與多維下載功能 */}
+                  {schedule && !isScheduling && (
+                    <div className="flex-grow flex flex-col overflow-hidden">
+                      
+                      {unplacedLessons.length > 0 && (
+                        <div className="bg-red-50 border border-red-200 rounded-2xl p-4 mb-6 flex-shrink-0 shadow-sm animate-scale-up">
+                          <div className="flex items-center text-red-800 font-bold mb-2.5">
+                            <Icon name="AlertCircle" className="w-5 h-5 mr-1.5 text-red-600 flex-shrink-0" />
+                            <span className="text-sm md:text-base">有 {unplacedLessons.reduce((sum, item) => sum + item.hours, 0)} 節課程因衝突未能自動排入（請手動排入）：</span>
+                          </div>
+                          <div className="max-h-48 overflow-y-auto custom-scrollbar pr-1">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                              {unplacedLessons.map((item, idx) => (
+                                <div key={idx} 
+                                  onClick={() => setManualPlacementTarget(item)}
+                                  className="bg-white border border-red-100 rounded-xl p-3 flex flex-col justify-between shadow-sm hover:border-red-300 hover:shadow-md cursor-pointer transition-all active:scale-95 text-left"
+                                >
+                                  <div>
+                                    <div className="flex justify-between items-start">
+                                      <span className="font-extrabold text-sm text-slate-800">{item.grade} {item.className}</span>
+                                      <span className="text-[11px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold">未排 {item.hours} 節</span>
+                                    </div>
+                                    <div className="text-xs text-slate-600 mt-2">
+                                      科目：<span className="font-bold text-slate-800">{item.subject}</span>
+                                    </div>
+                                    <div className="text-xs text-slate-600 mt-0.5">
+                                      任課教師：<span className="font-bold text-slate-800">{getTeacherLabel(item.teacher)}</span>
+                                    </div>
+                                  </div>
+                                  <div className="mt-2.5 pt-2 border-t border-dashed border-red-50 text-[10px] text-blue-600 font-extrabold flex items-center gap-1">
+                                    <span>🎯 點此開啟雙向對照排入</span>
+                                    <Icon name="ArrowRight" className="w-3 h-3" />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 下載、列印與呈現模式控制器 */}
+                      <div className="bg-slate-100 p-4 rounded-2xl border border-slate-200 mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4 flex-shrink-0">
+                        {/* 左：課表呈現選項 */}
+                        <div className="flex items-center gap-2 bg-white p-1 rounded-xl shadow-inner border">
+                          <button 
+                            onClick={() => setTimetableOption('class')}
+                            className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${timetableOption === 'class' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'}`}
+                          >
+                            按班級呈現課表
+                          </button>
+                          <button 
+                            onClick={() => setTimetableOption('teacher')}
+                            className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${timetableOption === 'teacher' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'}`}
+                          >
+                            按教師呈現課表
+                          </button>
+                        </div>
+
+                        {/* 右：下載與列印 PDF 組合按鈕 */}
+                        <div className="flex items-center gap-3 flex-wrap">
+                          {/* CSV 下載選單 */}
+                          <div className="flex items-center bg-white border border-slate-300 rounded-lg shadow-sm overflow-hidden text-xs md:text-sm font-extrabold text-slate-700">
+                            <span className="bg-slate-50 px-2.5 py-2 border-r border-slate-200 text-slate-500 flex items-center gap-1">
+                              <Icon name="Download" className="w-4 h-4 text-slate-400" />
+                              CSV 下載
+                            </span>
+                            <button 
+                              onClick={() => handleDownloadCSV('class')}
+                              className="px-3 py-2 hover:bg-slate-100 transition-colors border-r border-slate-200"
+                              title="按班級功課表格式匯出 CSV"
+                            >
+                              按班級
+                            </button>
+                            <button 
+                              onClick={() => handleDownloadCSV('teacher')}
+                              className="px-3 py-2 hover:bg-slate-100 transition-colors"
+                              title="按教師個人課表格式匯出 CSV"
+                            >
+                              按教師
+                            </button>
+                          </div>
+
+                          {/* PDF 下載選單 */}
+                          <div className="flex items-center bg-emerald-600 rounded-lg shadow-md overflow-hidden text-xs md:text-sm font-extrabold text-white">
+                            <span className="bg-emerald-700 px-2.5 py-2 text-emerald-100 flex items-center gap-1 border-r border-emerald-500">
+                              <Icon name="Printer" className="w-4 h-4 text-emerald-200" />
+                              PDF 匯出
+                            </span>
+                            <button 
+                              onClick={() => handlePrintPDF('class')}
+                              className="px-3.5 py-2 hover:bg-emerald-500 transition-colors border-r border-emerald-500 text-white"
+                              title="生成全校班級功課表 PDF 直接下載"
+                            >
+                              按班級
+                            </button>
+                            <button 
+                              onClick={() => handlePrintPDF('teacher')}
+                              className="px-3.5 py-2 hover:bg-emerald-500 transition-colors text-white"
+                              title="生成全校教師個人課表 PDF 直接下載"
+                            >
+                              按教師
+                            </button>
+                          </div>
+
+                          {/* Word 下載選單 */}
+                          <div className="flex items-center bg-blue-600 rounded-lg shadow-md overflow-hidden text-xs md:text-sm font-extrabold text-white">
+                            <span className="bg-blue-700 px-2.5 py-2 text-blue-100/50 flex items-center gap-1 border-r border-blue-500">
+                              <Icon name="FileText" className="w-4 h-4 text-blue-200" />
+                              Word 匯出
+                            </span>
+                            <button 
+                              onClick={() => handleDownloadDocx('class')}
+                              className="px-3.5 py-2 hover:bg-blue-700 transition-colors border-r border-blue-500"
+                              title="生成全校班級功課表 Word 文件 (.doc)"
+                            >
+                              按班級
+                            </button>
+                            <button 
+                              onClick={() => handleDownloadDocx('teacher')}
+                              className="px-3.5 py-2 hover:bg-blue-700 transition-colors"
+                              title="生成全校教師個人課表 Word 文件 (.doc)"
+                            >
+                              按教師
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="bg-blue-50/60 p-3 rounded-xl text-blue-800 text-xs flex items-center border border-blue-100 mb-4 flex-shrink-0">
+                        <Icon name="Info" className="w-5 h-5 mr-2 flex-shrink-0" />
+                        <span>💡 排好課囉！您可以<b>直接點擊功課表內任何一格</b>，手動更換、指派或清空課程，系統會自動核對教師同節衝堂！</span>
+                      </div>
+
+                      {/* --- 按班級呈現課表視角 --- */}
+                      {timetableOption === 'class' && (
+                        <div className="flex-grow overflow-y-auto space-y-8 pr-2 custom-scrollbar">
+                          {grades.map(grade => (
+                            grade.classes.map(className => {
+                              const classSchedule = schedule[grade.name]?.[className];
+                              if (!classSchedule) return null;
+                              return (
+                                <div key={`${grade.name}-${className}`} className="border border-slate-200 rounded-xl overflow-hidden shadow-sm bg-white animate-scale-up">
+                                  <div className="bg-gradient-to-r from-slate-100 to-white px-5 py-3 border-b border-slate-200 font-bold text-slate-800 flex justify-between items-center">
+                                    <span className="text-base font-extrabold">{grade.name} <span className="text-blue-600">{className}</span> 班級功課表</span>
+                                  </div>
+                                  <div className="overflow-x-auto">
+                                    <table className="w-full text-sm text-center">
+                                      <thead>
+                                        <tr className="bg-slate-50 text-slate-600 border-b border-slate-200">
+                                          <th className="py-2 px-2 border-r border-slate-200 w-20 font-bold">節次 \ 星期</th>
+                                          {Array.from({ length: timeConfig.days }).map((_, i) => <th key={i} className="py-2 px-2 border-r border-slate-200 last:border-0 font-bold">星期 {['一', '二', '三', '四', '五', '六'][i]}</th>)}
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {Array.from({ length: timeConfig.periodsPerDay }).map((_, pIndex) => (
+                                          <React.Fragment key={pIndex}>
+                                            {(pIndex === 4 || (timeConfig.periodsPerDay > 7 && pIndex === 5 && timeConfig.periodsPerDay !== 8)) && (
+                                              <tr><td colSpan={timeConfig.days + 1} className="bg-amber-50/50 text-amber-600 py-1.5 text-xs border-y border-amber-100 font-bold tracking-[0.2em] pointer-events-none">中午休息時間</td></tr>
+                                            )}
+                                            <tr className="border-b border-slate-100 last:border-0">
+                                              <td className="py-3 px-2 border-r border-slate-200 bg-slate-50 font-bold text-slate-500 shadow-sm pointer-events-none">第 {pIndex + 1} 節</td>
+                                              {Array.from({ length: timeConfig.days }).map((_, dIndex) => {
+                                                const lesson = classSchedule[dIndex][pIndex];
+                                                const isGradeOff = !!(grade?.offTimes?.[`${dIndex}-${pIndex}`]);
+                                                
+                                                return (
+                                                  <td 
+                                                    key={dIndex} 
+                                                    onClick={() => !isGradeOff && setEditingCell({ type: 'class', grade: grade.name, className, day: dIndex, period: pIndex })}
+                                                    className={`py-2 px-2 border-r border-slate-100 last:border-0 relative h-16 w-32 transition-all ${
+                                                      isGradeOff 
+                                                        ? 'bg-slate-100/70 cursor-not-allowed select-none' 
+                                                        : 'cursor-pointer hover:bg-blue-50/50 group'
+                                                    }`}
+                                                  >
+                                                    {isGradeOff ? (
+                                                      <span className="text-slate-400 font-bold text-[11px] block">❌ 不上課</span>
+                                                    ) : lesson ? (
+                                                      <div className="flex flex-col items-center justify-center h-full">
+                                                        <span className="font-extrabold text-slate-800 text-[14px]">{lesson.subject}</span>
+                                                        <span className="text-[11px] text-blue-600 mt-0.5 bg-blue-50 px-1.5 py-0.5 rounded-full font-bold leading-none truncate max-w-full" title={getTeacherLabel(lesson.teacher)}>
+                                                          {getTeacherLabel(lesson.teacher)}
+                                                        </span>
+                                                      </div>
+                                                    ) : <span className="text-slate-300 text-xs italic group-hover:text-blue-500">- 空堂 -</span>}
+                                                    
+                                                    {!isGradeOff && (
+                                                      <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity bg-blue-100 p-0.5 rounded shadow-sm">
+                                                        <Icon name="Edit" className="w-3.5 h-3.5 text-blue-600" />
+                                                      </div>
+                                                    )}
+                                                  </td>
+                                                );
+                                              })}
+                                            </tr>
+                                          </React.Fragment>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
+                              );
+                            })
+                          ))}
+                        </div>
+                      )}
+
+                      {/* --- 按教師呈現課表視角 --- */}
+                      {timetableOption === 'teacher' && (
+                        <div className="flex-grow overflow-y-auto space-y-8 pr-2 custom-scrollbar">
+                          {teachers.map(teacher => {
+                            const teacherMatrix = scheduleByTeacher[teacher];
+                            if (!teacherMatrix) return null;
+                            const totalHours = teacherMatrix.flat().filter(Boolean).length;
+
+                            return (
+                              <div key={teacher} className="border border-slate-200 rounded-xl overflow-hidden shadow-sm bg-white animate-scale-up">
+                                <div className="bg-gradient-to-r from-slate-100 to-white px-5 py-3 border-b border-slate-200 font-bold text-slate-800 flex justify-between items-center">
+                                  <span className="text-base font-extrabold">{getTeacherLabel(teacher)} 授課功課表</span>
+                                  <span className="text-xs bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full font-extrabold shadow-sm">每週授課: {totalHours} 節</span>
+                                </div>
+                                <div className="overflow-x-auto">
+                                  <table className="w-full text-sm text-center">
+                                    <thead>
+                                      <tr className="bg-slate-50 text-slate-600 border-b border-slate-200">
+                                        <th className="py-2.5 px-2 border-r border-slate-200 w-20 font-bold">節次 \ 星期</th>
+                                        {Array.from({ length: timeConfig.days }).map((_, i) => <th key={i} className="py-2.5 px-2 border-r border-slate-200 last:border-0 font-bold">星期 {['一', '二', '三', '四', '五', '六'][i]}</th>)}
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {Array.from({ length: timeConfig.periodsPerDay }).map((_, pIndex) => (
+                                        <React.Fragment key={pIndex}>
+                                          {(pIndex === 4 || (timeConfig.periodsPerDay > 7 && pIndex === 5 && timeConfig.periodsPerDay !== 8)) && (
+                                            <tr><td colSpan={timeConfig.days + 1} className="bg-amber-50/50 text-amber-600 py-1.5 text-xs border-y border-amber-100 font-bold tracking-[0.2em] pointer-events-none">中午休息時間</td></tr>
+                                          )}
+                                          <tr className="border-b border-slate-100 last:border-0">
+                                            <td className="py-3 px-2 border-r border-slate-200 bg-slate-50 font-bold text-slate-500 shadow-sm pointer-events-none">第 {pIndex + 1} 節</td>
+                                            {Array.from({ length: timeConfig.days }).map((_, dIndex) => {
+                                              const cell = teacherMatrix[dIndex][pIndex];
+                                              const isBusy = !!(teacherBusyTimes[teacher]?.[`${dIndex}-${pIndex}`]);
+
+                                              return (
+                                                <td 
+                                                  key={dIndex} 
+                                                  onClick={() => setEditingCell({ type: 'teacher', teacher, day: dIndex, period: pIndex, isBusy })}
+                                                  className={`py-2 px-2 border-r border-slate-100 last:border-0 relative h-16 w-32 cursor-pointer hover:bg-blue-50/50 transition-all group ${isBusy ? 'bg-red-50/80 hover:bg-red-100/50' : ''}`}
+                                                >
+                                                  {isBusy ? (
+                                                    <span className="text-red-500 font-extrabold text-xs block">❌ 不可排課</span>
+                                                  ) : cell ? (
+                                                    <div className="flex flex-col items-center justify-center h-full">
+                                                      <span className="font-extrabold text-slate-800 text-[14px]">{cell.subject}</span>
+                                                      <span className="text-[11px] text-emerald-600 mt-0.5 bg-emerald-50 px-1.5 py-0.5 rounded-full font-extrabold leading-none truncate max-w-full">
+                                                        {cell.grade} {cell.className}
+                                                      </span>
+                                                    </div>
+                                                  ) : <span className="text-slate-300 text-xs italic group-hover:text-blue-500">- 空堂 -</span>}
+                                                  
+                                                  <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity bg-blue-100 p-0.5 rounded shadow-sm">
+                                                    <Icon name={isBusy ? "Clock" : "Edit"} className={`w-3.5 h-3.5 ${isBusy ? 'text-red-600' : 'text-blue-600'}`} />
+                                                  </div>
+                                                </td>
+                                              );
+                                            })}
+                                          </tr>
+                                        </React.Fragment>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </main>
+
+          {/* ================= MODAL：不可排課時段設定對話框 ================= */}
+          {busyTimesTarget && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-2xl w-full p-6 animate-scale-up">
+                <h3 className="text-lg font-bold text-slate-800 mb-2 flex items-center">
+                  <Icon name="Clock" className="w-5 h-5 mr-2 text-red-500" />
+                  設定教師不可排課時間
+                </h3>
+                <p className="text-xs md:text-sm text-slate-500 mb-4 leading-relaxed">
+                  請點擊以下時間網格來指定 <span className="font-black text-blue-700 text-base">{getTeacherLabel(busyTimesTarget)}</span> 的<b>「不可排課」</b>時段。紅色格子（❌）在自動排課中將會被演算法智慧避開，確保排課彈性。
+                </p>
+
+                <div className="overflow-x-auto max-h-[400px] border rounded-xl shadow-inner mb-6">
+                  <table className="w-full text-sm text-center">
+                    <thead>
+                      <tr className="bg-slate-100 text-slate-600 border-b border-slate-200 font-bold">
+                        <th className="py-2.5 px-3 border-r">節次 \ 星期</th>
+                        {Array.from({ length: timeConfig.days }).map((_, i) => (
+                          <th key={i} className="py-2.5 px-2 border-r last:border-0">
+                            星期{['一', '二', '三', '四', '五', '六'][i]}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Array.from({ length: timeConfig.periodsPerDay }).map((_, pIndex) => (
+                        <tr key={pIndex} className="border-b border-slate-100 last:border-0">
+                          <td className="py-3 px-2 border-r bg-slate-50 font-bold text-slate-500">第 {pIndex + 1} 節</td>
+                          {Array.from({ length: timeConfig.days }).map((_, dIndex) => {
+                            const isBusy = !!(teacherBusyTimes[busyTimesTarget]?.[`${dIndex}-${pIndex}`]);
+                            return (
+                              <td 
+                                key={dIndex} 
+                                onClick={() => toggleBusyTime(dIndex, pIndex)}
+                                className={`py-3 px-2 border-r last:border-0 cursor-pointer transition-all ${
+                                  isBusy ? 'bg-red-500 text-white font-extrabold hover:bg-red-600' : 'bg-white text-slate-600 hover:bg-slate-50'
+                                }`}
+                              >
+                                {isBusy ? "❌ 不可排" : "✔️ 可排課"}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="flex justify-between items-center border-t border-slate-100 pt-4">
+                  <button 
+                    onClick={clearAllBusyTimes}
+                    className="text-xs bg-red-50 text-red-600 hover:bg-red-100 px-4 py-2 rounded-lg font-bold transition-all"
+                  >
+                    全部清除重設
+                  </button>
+                  <button 
+                    onClick={() => { setBusyTimesTarget(null); showToast("已儲存該教師不可排課時間！"); }}
+                    className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-sm transition-colors shadow-md"
+                  >
+                    儲存並關閉
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ================= MODAL：手動修改單一課堂對話框 ================= */}
+          {editingCell && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className={`bg-white rounded-2xl shadow-xl border border-slate-200 w-full p-6 animate-scale-up transition-all flex flex-col md:flex-row gap-6 ${previewTimetable ? 'max-w-5xl' : 'max-w-md'}`}>
+                
+                {/* 左側面板：編輯選項 */}
+                <div className="flex-1 min-w-0">
+                  {editingCell.isBusy ? (
+                    <>
+                      <h3 className="text-lg font-bold text-slate-800 mb-2 flex items-center">
+                        <Icon name="Clock" className="w-5 h-5 mr-2 text-red-500" />
+                        不可排課設定
+                      </h3>
+                      <p className="text-xs md:text-sm text-slate-500 mb-6 leading-relaxed">
+                        目前已將 <b>{getTeacherLabel(editingCell.teacher)}</b> 設定在 <b>星期{['一', '二', '三', '四', '五', '六'][editingCell.day]} 第 {editingCell.period + 1} 節</b> 為不可排課時間。
+                      </p>
+                      <div className="space-y-4 mb-6">
+                        <button 
+                          onClick={() => {
+                            toggleBusyTimeForTeacher(editingCell.teacher, editingCell.day, editingCell.period);
+                            setEditingCell(null);
+                            showToast("已成功取消該節的不可排課設定！");
+                          }}
+                          className="w-full flex items-center justify-center gap-2 p-3 rounded-xl border border-red-200 hover:bg-red-50/50 text-red-700 font-extrabold text-sm transition-all"
+                        >
+                          🔓 取消此不可排課時段設定
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <h3 className="text-lg font-bold text-slate-800 mb-2 flex items-center">
+                        <Icon name="Edit" className="w-5 h-5 mr-2 text-blue-600" />
+                        手動修改排課格子
+                      </h3>
+                      <p className="text-xs md:text-sm text-slate-500 mb-4 leading-relaxed">
+                        您正在手動編輯 <b>星期{['一', '二', '三', '四', '五', '六'][editingCell.day]} 第 {editingCell.period + 1} 節</b> 課堂：
+                      </p>
+
+                      {/* 課堂指派與切換選項 */}
+                      <div className="space-y-4 mb-6">
+                        {/* 清空選項 */}
+                        <button 
+                          onClick={() => handleModifyCellSchedule('clear')}
+                          className="w-full flex items-center justify-between p-3 rounded-xl border border-red-200 hover:bg-red-50/50 text-red-700 font-extrabold text-sm transition-all"
+                        >
+                          <span>🗑️ 清空此節課程設定</span>
+                          <span className="text-xs font-bold text-red-400">設為空堂</span>
+                        </button>
+
+                        <div className="border-t border-slate-100 my-4 pt-3">
+                          <label className="block text-xs font-bold text-slate-500 mb-1.5">
+                            {editingCell.type === 'class' ? "指派該班課程給特定教師：" : "指派此時段本任課教師班級："}
+                          </label>
+                          <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar p-1">
+                            {/* 依視角取得對應可指派的課程配課 */}
+                            {(() => {
+                              const getScheduledCount = (assign) => {
+                                if (!schedule) return 0;
+                                let count = 0;
+                                const classSchedule = schedule[assign.grade]?.[assign.className];
+                                if (!classSchedule) return 0;
+                                for (let d = 0; d < timeConfig.days; d++) {
+                                  for (let p = 0; p < timeConfig.periodsPerDay; p++) {
+                                    const cell = classSchedule[d]?.[p];
+                                    if (cell && cell.subject === assign.subject && cell.teacher === assign.teacher) {
+                                      count++;
+                                    }
+                                  }
+                                }
+                                return count;
+                              };
+
+                              const items = assignments.filter(a => {
+                                if (editingCell.type === 'class') {
+                                  return a.grade === editingCell.grade && a.className === editingCell.className && getScheduledCount(a) < a.hours;
+                                } else {
+                                  return a.teacher === editingCell.teacher && getScheduledCount(a) < a.hours;
+                                }
+                              });
+
+                              if (items.length === 0) {
+                                return <p className="text-xs text-slate-400 italic text-center py-4">該班所有配課皆已排滿或無可用配課資訊</p>;
+                              }
+
+                              return items.map(a => (
+                                <div key={a.id} className="flex items-center gap-1.5">
+                                  <button
+                                    onClick={() => handleModifyCellSchedule(a.id.toString())}
+                                    className="flex-grow text-left p-2.5 rounded-lg border border-slate-200 hover:border-blue-400 hover:bg-blue-50/30 text-xs font-semibold text-slate-700 transition-all flex justify-between items-center shadow-inner"
+                                  >
+                                    <span>
+                                      {editingCell.type === 'class' 
+                                        ? `${a.subject} (教師: ${getTeacherLabel(a.teacher)})` 
+                                        : `${a.grade} ${a.className} - ${a.subject}`}
+                                    </span>
+                                    <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded border">
+                                      共 {a.hours} 節
+                                    </span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (editingCell.type === 'class') {
+                                        setPreviewTimetable({ type: 'teacher', name: a.teacher });
+                                      } else {
+                                        setPreviewTimetable({ type: 'class', grade: a.grade, className: a.className });
+                                      }
+                                    }}
+                                    className="p-2 text-blue-600 hover:bg-blue-50 rounded border border-blue-100 flex items-center justify-center flex-shrink-0"
+                                    title={editingCell.type === 'class' ? "🔍 對照此教師個人課表" : "🔍 對照此班級功課表"}
+                                  >
+                                    <Icon name="Clock" className="w-4 h-4 text-blue-500" />
+                                  </button>
+                                </div>
+                              ));
+                            })()}
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  <div className="flex justify-end pt-3 border-t border-slate-100">
+                    <button 
+                      onClick={() => setEditingCell(null)}
+                      className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-sm transition-colors"
+                    >
+                      關閉
+                    </button>
+                  </div>
+                </div>
+
+                {/* 右側面板：對照課表預覽 */}
+                {previewTimetable && (
+                  <div className="w-full md:w-[500px] border-t md:border-t-0 md:border-l border-slate-200 pt-4 md:pt-0 md:pl-6 flex flex-col min-w-0">
+                    <div className="flex justify-between items-center mb-3">
+                      <span className="font-extrabold text-sm text-blue-800 flex items-center">
+                        <Icon name="CalendarDays" className="w-4 h-4 mr-1 text-blue-600" />
+                        對照課表：
+                        {previewTimetable.type === 'teacher' 
+                          ? getTeacherLabel(previewTimetable.name) 
+                          : `${previewTimetable.grade} ${previewTimetable.className}`}
+                      </span>
+                      <button 
+                        onClick={() => setPreviewTimetable(null)}
+                        className="text-xs text-slate-505 hover:text-slate-700 border px-2 py-0.5 rounded shadow-sm bg-white"
+                      >
+                        關閉對照
+                      </button>
+                    </div>
+                    
+                    <div className="overflow-x-auto border border-slate-100 rounded-lg shadow-inner bg-slate-50/50 max-h-[350px] custom-scrollbar">
+                      <table className="w-full text-[11px] text-center border-collapse">
+                        <thead>
+                          <tr className="bg-slate-100 text-slate-600 border-b border-slate-200">
+                            <th className="p-2 border-r font-bold">節次</th>
+                            {Array.from({ length: timeConfig.days }).map((_, i) => (
+                              <th key={i} className="p-2 border-r font-bold">星期{['一', '二', '三', '四', '五', '六'][i]}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(() => {
+                            let matrix = [];
+                            if (previewTimetable.type === 'teacher') {
+                              matrix = scheduleByTeacher[previewTimetable.name] || Array(timeConfig.days).fill(null).map(() => Array(timeConfig.periodsPerDay).fill(null));
+                            } else {
+                              matrix = schedule[previewTimetable.grade]?.[previewTimetable.className] || Array(timeConfig.days).fill(null).map(() => Array(timeConfig.periodsPerDay).fill(null));
+                            }
+                            
+                            return Array.from({ length: timeConfig.periodsPerDay }).map((_, pIndex) => {
+                              const isLunch = pIndex === 4 || (timeConfig.periodsPerDay > 7 && pIndex === 5 && timeConfig.periodsPerDay !== 8);
+                              return (
+                                <React.Fragment key={pIndex}>
+                                  {isLunch && (
+                                    <tr><td colSpan={timeConfig.days + 1} className="bg-amber-50/30 text-amber-600 py-0.5 text-[9px] border-y border-amber-100 pointer-events-none font-bold">中午休息</td></tr>
+                                  )}
+                                  <tr className="border-b border-slate-200">
+                                    <td className="p-2 border-r bg-slate-100 text-slate-500 font-bold">第 {pIndex + 1} 節</td>
+                                    {Array.from({ length: timeConfig.days }).map((_, dIndex) => {
+                                      const isCurrentCell = editingCell.day === dIndex && editingCell.period === pIndex;
+                                      const cell = matrix[dIndex]?.[pIndex];
+                                      
+                                      const isTeacherBusy = previewTimetable.type === 'teacher' && !!(teacherBusyTimes[previewTimetable.name]?.[`${dIndex}-${pIndex}`]);
+                                      
+                                      let cellContent = "-";
+                                      let bgStyle = "bg-white text-slate-400";
+                                      
+                                      if (isTeacherBusy) {
+                                        cellContent = "❌ 不可排";
+                                        bgStyle = "bg-red-50 text-red-500 font-bold";
+                                      } else if (cell) {
+                                        if (previewTimetable.type === 'teacher') {
+                                          cellContent = `${cell.subject} (${cell.grade}${cell.className})`;
+                                          bgStyle = "bg-emerald-50 text-emerald-800 font-medium";
+                                        } else {
+                                          cellContent = `${cell.subject} (${cell.teacher})`;
+                                          bgStyle = "bg-blue-50 text-blue-800 font-medium";
+                                        }
+                                      }
+                                      
+                                      return (
+                                        <td 
+                                          key={dIndex} 
+                                          className={`p-2 border-r last:border-0 h-11 w-16 align-middle truncate max-w-[80px] ${bgStyle} ${
+                                            isCurrentCell ? 'ring-2 ring-amber-500 ring-inset font-black text-slate-800' : ''
+                                          }`}
+                                          title={cellContent !== '-' ? cellContent : ''}
+                                        >
+                                          {cellContent}
+                                        </td>
+                                      );
+                                    })}
+                                  </tr>
+                                </React.Fragment>
+                              );
+                            });
+                          })()}
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">
+                      * 橘色外框（<span className="text-amber-500 font-bold">■</span>）代表您目前正在手動編輯的格子時段。
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 拆分課程 Modal 對話框 */}
+          {splitTarget && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-md w-full p-6 animate-scale-up">
+                <h3 className="text-lg font-bold text-slate-800 mb-2 flex items-center">
+                  <Icon name="Sparkles" className="w-5 h-5 mr-2 text-blue-600" />
+                  拆分課程計畫
+                </h3>
+                <p className="text-xs md:text-sm text-slate-500 mb-4 leading-relaxed">
+                  將 <span className="font-bold text-slate-700">{splitTarget.grade} {splitTarget.className}</span> 的 <span className="font-extrabold text-blue-600">{splitTarget.subject} ({splitTarget.hours} 節)</span> 拆分為細項科目，以便分配給不同老師。
+                </p>
+                
+                <div className="space-y-3 max-h-60 overflow-y-auto custom-scrollbar mb-4 pr-1">
+                  {splitInputs.map((part, index) => (
+                    <div key={index} className="flex items-center gap-2 bg-slate-50 p-2.5 rounded-lg border border-slate-200 shadow-sm">
+                      <input 
+                        type="text" 
+                        placeholder={`子課程名稱 (如: 健康)`} 
+                        className="flex-grow p-1.5 border rounded text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                        value={part.subject}
+                        onChange={(e) => {
+                          const newParts = [...splitInputs];
+                          newParts[index].subject = e.target.value;
+                          setSplitInputs(newParts);
+                        }}
+                      />
+                      <div className="flex items-center border rounded bg-white overflow-hidden flex-shrink-0">
+                        <span className="px-2 text-xs text-slate-500">節數</span>
+                        <input 
+                          type="number" 
+                          min="1" 
+                          max={splitTarget.hours}
+                          className="w-12 p-1.5 text-sm text-center outline-none"
+                          value={part.hours}
+                          onChange={(e) => {
+                            const newParts = [...splitInputs];
+                            newParts[index].hours = parseInt(e.target.value, 10) || 1;
+                            setSplitInputs(newParts);
+                          }}
+                        />
+                      </div>
+                      {splitInputs.length > 2 && (
+                        <button 
+                          onClick={() => {
+                            setSplitInputs(splitInputs.filter((_, i) => i !== index));
+                          }}
+                          className="text-red-400 hover:text-red-600 p-1"
+                          title="刪除此拆分列"
+                        >
+                          <Icon name="Trash2" className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* 節數統計與智慧提示 */}
+                <div className="flex justify-between items-center mb-6 text-xs md:text-sm font-bold">
+                  <button 
+                    onClick={() => {
+                      setSplitInputs([...splitInputs, { subject: '', hours: 1 }]);
+                    }}
+                    className="text-blue-600 hover:text-blue-700 font-extrabold flex items-center gap-1"
+                  >
+                    <Icon name="Plus" className="w-4 h-4" /> 增加子課程
+                  </button>
+                  
+                  {(() => {
+                    const allocated = splitInputs.reduce((sum, p) => sum + p.hours, 0);
+                    const diff = splitTarget.hours - allocated;
+                    if (diff === 0) {
+                      return <span className="text-emerald-600 flex items-center"><Icon name="Check" className="w-4 h-4 mr-1"/>分配節數相符</span>;
+                    } else if (diff > 0) {
+                      return <span className="text-amber-600">剩餘 {diff} 節未分派</span>;
+                    } else {
+                      return <span className="text-red-500">超出計畫 {Math.abs(diff)} 節</span>;
+                    }
+                  })()}
+                </div>
+
+                <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
+                  <button 
+                    onClick={() => setSplitTarget(null)}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-sm transition-colors"
+                  >
+                    取消
+                  </button>
+                  <button 
+                    disabled={
+                      splitInputs.reduce((sum, p) => sum + p.hours, 0) !== splitTarget.hours ||
+                      splitInputs.some(p => !p.subject.trim())
+                    }
+                    onClick={() => {
+                      const key = `${splitTarget.grade}-${splitTarget.className}-${splitTarget.subject}`;
+                      setCustomSplits(prev => ({
+                        ...prev,
+                        [key]: splitInputs.map(p => ({ subject: p.subject.trim(), hours: p.hours }))
+                      }));
+                      setSplitTarget(null);
+                      showToast(`成功將 ${splitTarget.subject} 拆分為 ${splitInputs.map(p=>p.subject).join('、')}！`);
+                    }}
+                    className="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold rounded-lg text-sm transition-colors shadow-sm"
+                  >
+                    確認拆分
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ================= MODAL：年級不上課時段設定對話框 ================= */}
+          {gradeOffTimesTarget !== null && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-2xl w-full p-6 animate-scale-up">
+                <h3 className="text-lg font-bold text-slate-800 mb-2 flex items-center">
+                  <Icon name="Clock" className="w-5 h-5 mr-2 text-blue-600" />
+                  設定 {grades[gradeOffTimesTarget]?.name} 不上課時段
+                </h3>
+                <p className="text-xs md:text-sm text-slate-500 mb-4 leading-relaxed">
+                  請點擊以下時間網格，指定該年級固定<b>「不上課」</b>的時段（例如低年級星期二下午不上課）。紅色格子（❌）在自動排課中將被系統避開。
+                </p>
+
+                {grades.length > 1 && (
+                  <div className="flex items-center gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200 mb-4 text-xs font-bold text-slate-700">
+                    <span>📋 快速套用其他年級的不上課設定：</span>
+                    <select 
+                      onChange={(e) => {
+                        const sourceIndex = parseInt(e.target.value);
+                        if (isNaN(sourceIndex)) return;
+                        const sourceOffTimes = grades[sourceIndex]?.offTimes || {};
+                        setGrades(prev => prev.map((g, i) => {
+                          if (i !== gradeOffTimesTarget) return g;
+                          return { ...g, offTimes: { ...sourceOffTimes } };
+                        }));
+                        showToast(`已套用 [${grades[sourceIndex].name}] 的不上課時段設定！`);
+                        e.target.value = "";
+                      }}
+                      className="p-1.5 border rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 font-bold"
+                      defaultValue=""
+                    >
+                      <option value="" disabled>-- 選擇複製來源年級 --</option>
+                      {grades.map((g, idx) => {
+                        if (idx === gradeOffTimesTarget) return null;
+                        return (
+                          <option key={idx} value={idx}>
+                            {g.name} (已設 {Object.keys(g.offTimes || {}).length} 節)
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+                )}
+
+                <div className="overflow-x-auto border border-slate-100 rounded-xl mb-6 shadow-inner bg-slate-50/50">
+                  <table className="w-full text-xs text-center border-collapse">
+                    <thead>
+                      <tr className="bg-slate-100 text-slate-600 border-b border-slate-200">
+                        <th className="py-2.5 px-2 border-r font-bold w-20 bg-slate-100/80">節次</th>
+                        {Array.from({ length: timeConfig.days }).map((_, i) => (
+                          <th key={i} className="py-2.5 px-2 border-r last:border-0 font-bold bg-slate-100/80 text-slate-600">
+                            星期{['一', '二', '三', '四', '五', '六'][i]}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Array.from({ length: timeConfig.periodsPerDay }).map((_, pIndex) => (
+                        <tr key={pIndex} className="border-b border-slate-100 last:border-0">
+                          <td className="py-3 px-2 border-r bg-slate-100 font-bold text-slate-500">第 {pIndex + 1} 節</td>
+                          {Array.from({ length: timeConfig.days }).map((_, dIndex) => {
+                            const isOff = !!(grades[gradeOffTimesTarget]?.offTimes?.[`${dIndex}-${pIndex}`]);
+                            return (
+                              <td 
+                                key={dIndex} 
+                                onClick={() => toggleGradeOffTime(gradeOffTimesTarget, dIndex, pIndex)}
+                                className={`py-3 px-2 border-r last:border-0 cursor-pointer transition-all select-none ${
+                                  isOff ? 'bg-red-500 text-white font-extrabold hover:bg-red-600' : 'bg-white text-slate-600 hover:bg-slate-50'
+                                }`}
+                              >
+                                {isOff ? "❌ 不上課" : "✔️ 上課"}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="flex justify-between items-center border-t border-slate-100 pt-4">
+                  <button 
+                    onClick={() => clearAllGradeOffTimes(gradeOffTimesTarget)}
+                    className="text-xs bg-red-50 hover:bg-red-100 text-red-600 px-4 py-2 rounded-lg font-bold transition-all border border-red-100"
+                  >
+                    全部上課 (清空)
+                  </button>
+                  <button 
+                    onClick={() => { setGradeOffTimesTarget(null); showToast("已儲存年級不上課時段設定！"); }}
+                    className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-sm transition-colors shadow-md"
+                  >
+                    儲存並關閉
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ================= MODAL：手動協同排課輔助視窗 (雙向課表對照) ================= */}
+          {manualPlacementTarget && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-6xl p-6 animate-scale-up flex flex-col max-h-[90vh] overflow-hidden">
+                
+                {/* 標頭 */}
+                <div className="flex justify-between items-start border-b border-slate-200 pb-3 mb-4 flex-shrink-0">
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-800 flex items-center gap-1.5">
+                      <Icon name="CalendarDays" className="w-5 h-5 text-blue-600" />
+                      手動對照協同排課
+                    </h3>
+                    <p className="text-xs md:text-sm text-slate-500 mt-1 text-left">
+                      正在將未排科目 <span className="font-extrabold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">{manualPlacementTarget.subject}</span> (任課教師: <span className="font-extrabold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">{getTeacherLabel(manualPlacementTarget.teacher)}</span>) 排入班級 <span className="font-extrabold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">{manualPlacementTarget.grade} {manualPlacementTarget.className}</span>。
+                    </p>
+                  </div>
+                  <button 
+                    onClick={() => setManualPlacementTarget(null)}
+                    className="text-slate-400 hover:text-slate-600 text-2xl font-bold transition-colors"
+                  >
+                    &times;
+                  </button>
+                </div>
+
+                {/* 雙向課表主格區 - 滾動區域 */}
+                <div className="flex-grow overflow-y-auto custom-scrollbar space-y-6 pb-4 pr-1">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    
+                    {/* 左邊：班級課表 */}
+                    <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/30 text-left">
+                      <h4 className="font-extrabold text-sm text-slate-700 mb-3 flex items-center gap-1.5">
+                        <Icon name="Users" className="w-4 h-4 text-indigo-500" />
+                        【班級課表】{manualPlacementTarget.grade} {manualPlacementTarget.className}
+                      </h4>
+                      <div className="overflow-x-auto border border-slate-100 rounded-lg shadow-inner bg-white">
+                        <table className="w-full text-[11px] text-center border-collapse">
+                          <thead>
+                            <tr className="bg-slate-100 text-slate-600 border-b border-slate-200">
+                              <th className="p-2 border-r font-bold w-12">節次</th>
+                              {Array.from({ length: timeConfig.days }).map((_, i) => (
+                                <th key={i} className="p-2 border-r font-bold">星期{['一', '二', '三', '四', '五', '六'][i]}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Array.from({ length: timeConfig.periodsPerDay }).map((_, pIndex) => {
+                              const isLunch = pIndex === 4 || (timeConfig.periodsPerDay > 7 && pIndex === 5 && timeConfig.periodsPerDay !== 8);
+                              return (
+                                <React.Fragment key={pIndex}>
+                                  {isLunch && (
+                                    <tr><td colSpan={timeConfig.days + 1} className="bg-amber-50/30 text-amber-600 py-0.5 text-[9px] border-y border-amber-100 pointer-events-none font-bold">中午休息</td></tr>
+                                  )}
+                                  <tr className="border-b border-slate-100 last:border-0">
+                                    <td className="p-2 border-r bg-slate-50 text-slate-500 font-bold">第 {pIndex + 1} 節</td>
+                                    {Array.from({ length: timeConfig.days }).map((_, dIndex) => {
+                                      const classCell = schedule[manualPlacementTarget.grade]?.[manualPlacementTarget.className]?.[dIndex]?.[pIndex];
+                                      const gradeObj = grades.find(g => g.name === manualPlacementTarget.grade);
+                                      const isClassOff = !!(gradeObj?.offTimes?.[`${dIndex}-${pIndex}`]);
+                                      
+                                      const teacherCell = scheduleByTeacher[manualPlacementTarget.teacher]?.[dIndex]?.[pIndex];
+                                      const isTeacherBusy = !!(teacherBusyTimes[manualPlacementTarget.teacher]?.[`${dIndex}-${pIndex}`]);
+                                      
+                                      const isSelected = selectedPlacementSlot?.day === dIndex && selectedPlacementSlot?.period === pIndex;
+                                      const isPerfect = !classCell && !isClassOff && !teacherCell && !isTeacherBusy;
+                                      
+                                      let cellContent = "-";
+                                      let cellStyle = "text-slate-300 italic hover:bg-slate-50";
+                                      
+                                      if (isClassOff) {
+                                        cellContent = "❌ 不上課";
+                                        cellStyle = "bg-slate-100 text-slate-400 font-bold cursor-not-allowed";
+                                      } else if (classCell) {
+                                        cellContent = `${classCell.subject} (${getTeacherLabel(classCell.teacher)})`;
+                                        cellStyle = "bg-indigo-50/50 text-indigo-900 font-medium hover:bg-indigo-100/50";
+                                      } else if (isPerfect) {
+                                        cellContent = "✨ 完美時段";
+                                        cellStyle = "bg-emerald-50/60 text-emerald-700 font-extrabold hover:bg-emerald-100/80 border-dashed border border-emerald-300";
+                                      }
+                                      
+                                      return (
+                                        <td 
+                                          key={dIndex} 
+                                          onClick={() => !isClassOff && setSelectedPlacementSlot({ day: dIndex, period: pIndex })}
+                                          className={`p-2 border-r last:border-0 h-12 w-20 align-middle truncate max-w-[100px] cursor-pointer transition-all ${cellStyle} ${
+                                            isSelected ? 'ring-2 ring-blue-500 ring-inset font-bold text-slate-800' : ''
+                                          }`}
+                                          title={cellContent !== '-' ? cellContent : ''}
+                                        >
+                                          {cellContent}
+                                        </td>
+                                      );
+                                    })}
+                                  </tr>
+                                </React.Fragment>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* 右邊：教師課表 */}
+                    <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/30 text-left">
+                      <h4 className="font-extrabold text-sm text-slate-700 mb-3 flex items-center gap-1.5">
+                        <Icon name="Briefcase" className="w-4 h-4 text-emerald-500" />
+                        【教師課表】{getTeacherLabel(manualPlacementTarget.teacher)}
+                      </h4>
+                      <div className="overflow-x-auto border border-slate-100 rounded-lg shadow-inner bg-white">
+                        <table className="w-full text-[11px] text-center border-collapse">
+                          <thead>
+                            <tr className="bg-slate-100 text-slate-600 border-b border-slate-200">
+                              <th className="p-2 border-r font-bold w-12">節次</th>
+                              {Array.from({ length: timeConfig.days }).map((_, i) => (
+                                <th key={i} className="p-2 border-r font-bold">星期{['一', '二', '三', '四', '五', '六'][i]}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Array.from({ length: timeConfig.periodsPerDay }).map((_, pIndex) => {
+                              const isLunch = pIndex === 4 || (timeConfig.periodsPerDay > 7 && pIndex === 5 && timeConfig.periodsPerDay !== 8);
+                              return (
+                                <React.Fragment key={pIndex}>
+                                  {isLunch && (
+                                    <tr><td colSpan={timeConfig.days + 1} className="bg-amber-50/30 text-amber-600 py-0.5 text-[9px] border-y border-amber-100 pointer-events-none font-bold">中午休息</td></tr>
+                                  )}
+                                  <tr className="border-b border-slate-100 last:border-0">
+                                    <td className="p-2 border-r bg-slate-50 text-slate-500 font-bold">第 {pIndex + 1} 節</td>
+                                    {Array.from({ length: timeConfig.days }).map((_, dIndex) => {
+                                      const teacherCell = scheduleByTeacher[manualPlacementTarget.teacher]?.[dIndex]?.[pIndex];
+                                      const isTeacherBusy = !!(teacherBusyTimes[manualPlacementTarget.teacher]?.[`${dIndex}-${pIndex}`]);
+                                      
+                                      const classCell = schedule[manualPlacementTarget.grade]?.[manualPlacementTarget.className]?.[dIndex]?.[pIndex];
+                                      const gradeObj = grades.find(g => g.name === manualPlacementTarget.grade);
+                                      const isClassOff = !!(gradeObj?.offTimes?.[`${dIndex}-${pIndex}`]);
+                                      
+                                      const isSelected = selectedPlacementSlot?.day === dIndex && selectedPlacementSlot?.period === pIndex;
+                                      const isPerfect = !classCell && !isClassOff && !teacherCell && !isTeacherBusy;
+                                      
+                                      let cellContent = "-";
+                                      let cellStyle = "text-slate-300 italic hover:bg-slate-50";
+                                      
+                                      if (isTeacherBusy) {
+                                        cellContent = "❌ 不可排";
+                                        cellStyle = "bg-red-50 text-red-500 font-bold hover:bg-red-100/50";
+                                      } else if (teacherCell) {
+                                        cellContent = `${teacherCell.subject} (${teacherCell.grade}${teacherCell.className})`;
+                                        cellStyle = "bg-emerald-50/50 text-emerald-900 font-medium hover:bg-emerald-100/50";
+                                      } else if (isPerfect) {
+                                        cellContent = "✨ 完美時段";
+                                        cellStyle = "bg-emerald-50/60 text-emerald-700 font-extrabold hover:bg-emerald-100/80 border-dashed border border-emerald-300";
+                                      }
+                                      
+                                      return (
+                                        <td 
+                                          key={dIndex} 
+                                          onClick={() => setSelectedPlacementSlot({ day: dIndex, period: pIndex })}
+                                          className={`p-2 border-r last:border-0 h-12 w-20 align-middle truncate max-w-[100px] cursor-pointer transition-all ${cellStyle} ${
+                                            isSelected ? 'ring-2 ring-blue-500 ring-inset font-bold text-slate-800' : ''
+                                          }`}
+                                          title={cellContent !== '-' ? cellContent : ''}
+                                        >
+                                          {cellContent}
+                                        </td>
+                                      );
+                                    })}
+                                  </tr>
+                                </React.Fragment>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 底部互動操作面板 */}
+                <div className="border-t border-slate-200 pt-4 flex-shrink-0 space-y-4">
+                  {selectedPlacementSlot ? (() => {
+                    const { day, period } = selectedPlacementSlot;
+                    const gradeObj = grades.find(g => g.name === manualPlacementTarget.grade);
+                    
+                    const classCell = schedule[manualPlacementTarget.grade]?.[manualPlacementTarget.className]?.[day]?.[period];
+                    const isClassOff = !!(gradeObj?.offTimes?.[`${day}-${period}`]);
+                    
+                    const teacherCell = scheduleByTeacher[manualPlacementTarget.teacher]?.[day]?.[period];
+                    const isTeacherBusy = !!(teacherBusyTimes[manualPlacementTarget.teacher]?.[`${day}-${period}`]);
+                    
+                    return (
+                      <div className="bg-blue-50/60 border border-blue-200 rounded-xl p-4 flex flex-col md:flex-row justify-between items-center gap-4 animate-scale-up text-left">
+                        <div className="text-left w-full md:w-auto">
+                          <span className="text-xs font-bold bg-blue-600 text-white px-2 py-0.5 rounded-full mr-2">已選時段</span>
+                          <span className="font-extrabold text-slate-800 text-sm">星期{['一','二','三','四','五','六'][day]} 第 {period + 1} 節</span>
+                          
+                          <div className="text-xs text-slate-500 mt-1.5 space-y-0.5">
+                            <div>班級目前狀態：<b>{classCell ? `${classCell.subject} (${getTeacherLabel(classCell.teacher)})` : isClassOff ? "❌ 不上課時段" : "✔️ 空堂"}</b></div>
+                            <div>教師目前狀態：<b>{teacherCell ? `${teacherCell.subject} (${teacherCell.grade}${teacherCell.className})` : isTeacherBusy ? "❌ 不可排課時段" : "✔️ 空堂"}</b></div>
+                          </div>
+                        </div>
+                        
+                        <div className="flex flex-wrap gap-2 justify-end w-full md:w-auto">
+                          {classCell && (
+                            <button 
+                              onClick={() => {
+                                const nextSchedule = JSON.parse(JSON.stringify(schedule));
+                                nextSchedule[manualPlacementTarget.grade][manualPlacementTarget.className][day][period] = null;
+                                setSchedule(nextSchedule);
+                                showToast("已清空該班級時段課程！");
+                              }}
+                              className="px-3 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-bold transition-all border border-red-100"
+                            >
+                              🗑️ 清除班級此節
+                            </button>
+                          )}
+                          
+                          {teacherCell && (
+                            <button 
+                              onClick={() => {
+                                const nextSchedule = JSON.parse(JSON.stringify(schedule));
+                                for (const g in nextSchedule) {
+                                  for (const c in nextSchedule[g]) {
+                                    const cell = nextSchedule[g][c][day][period];
+                                    if (cell && cell.teacher === manualPlacementTarget.teacher) {
+                                      nextSchedule[g][c][day][period] = null;
+                                    }
+                                  }
+                                }
+                                setSchedule(nextSchedule);
+                                showToast("已清空教師此節授課！");
+                              }}
+                              className="px-3 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-bold transition-all border border-red-100"
+                            >
+                              🗑️ 清除教師此節
+                            </button>
+                          )}
+                          
+                          <button 
+                            disabled={isClassOff}
+                            onClick={() => handleAssignTargetCourse(day, period)}
+                            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-lg text-xs font-extrabold transition-all shadow-sm flex items-center gap-1"
+                          >
+                            🎯 填入此未排課程
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })() : (
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center text-xs text-slate-500 font-bold">
+                      💡 請點擊上方「班級課表」或「教師課表」中的任一時間格子來進行手動填入、覆蓋或清空。
+                    </div>
+                  )}
+                  
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-slate-400 font-bold">
+                      * 點擊 <span className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-1.5 py-0.5 rounded font-extrabold">✨ 完美時段</span> 可最快排入無衝突之課程。
+                    </span>
+                    <button 
+                      onClick={() => setManualPlacementTarget(null)}
+                      className="px-5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-sm transition-colors"
+                    >
+                      關閉輔導視窗
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 左下角固定定位浮動專案控制面板 */}
+          <div className="fixed bottom-6 left-6 z-40 flex flex-col sm:flex-row gap-3 bg-white/90 backdrop-blur-md p-3 rounded-2xl shadow-xl border border-slate-200 hover:shadow-2xl hover:border-slate-300 transition-all duration-300 animate-scale-up">
+            <input type="file" ref={fileInputRef} className="hidden" accept=".json" onChange={handleImportProject} />
+            <button 
+              onClick={() => fileInputRef.current.click()} 
+              className="flex items-center justify-center px-4 py-2.5 text-sm font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 active:scale-95 rounded-xl transition-all border border-slate-200 shadow-sm"
+              title="載入先前儲存的排課專案 (.json)"
+            >
+              <Icon name="FolderOpen" className="w-4 h-4 mr-2 text-slate-500" /> 載入專案
+            </button>
+            <button 
+              onClick={handleExportProject} 
+              className="flex items-center justify-center px-4 py-2.5 text-sm font-bold text-white bg-slate-800 hover:bg-slate-900 active:scale-95 rounded-xl transition-all shadow-md"
+              title="將當前排課進度匯出備份 (.json)"
+            >
+              <Icon name="Save" className="w-4 h-4 mr-2" /> 匯出專案
+            </button>
+          </div>
+
+          {/* Footer & CC 授權資訊與阿剛老師標記 */}
+          <footer className="bg-slate-800 text-slate-300 py-6 mt-auto">
+            <div className="max-w-6xl mx-auto px-4 flex flex-col items-center justify-center space-y-2">
+              <p className="text-base font-bold text-slate-400">
+                <a href="https://kentxchang.blogspot.tw" target="_blank" rel="noopener noreferrer" className="font-bold text-blue-400 hover:text-blue-300 hover:underline transition-all">
+                  Made by 阿剛老師
+                </a>
+              </p>
+              <div className="bg-slate-700/50 px-4 py-2 rounded-lg text-center mt-2 max-w-xl">
+                <p className="text-sm font-medium text-slate-200 mb-1">
+                  本專案採用「創用 CC 姓名標示-非商業性-相同方式分享 4.0 國際 (CC BY-NC-SA 4.0)」授權條款
+                </p>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  您可以自由分享、複製、分發及修改本程式，唯需在使用時標示原作者「阿剛老師」之創作者資訊，且在任何情況下皆不得將本程式 or 其修改版本用於商業盈利目的。
+                </p>
+              </div>
+            </div>
+          </footer>
+        </div>
+      );
+    }
+
+    // React 掛載至根節點
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
